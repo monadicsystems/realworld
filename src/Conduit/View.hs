@@ -297,3 +297,9 @@ instance ToHtml Article where
                   i_ [class_ "ion-edit"] ""
                   i_ [class_ "ion-trash-a"] ""
   toHtmlRaw = toHtml
+
+instance (ToHtml l, ToHtml r) => ToHtml (Either l r) where
+  toHtml either = case either of
+    Left l -> toHtml l
+    Right r -> toHtml r
+  toHtmlRaw = toHtml
