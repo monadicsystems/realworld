@@ -47,6 +47,13 @@ packages:
   original:
     hackage: selective-0.5@sha256:dff7715af7cc652f2e695e17674e2b1016ea4f675357291dc78a1f7a3ee5a17f,3470
 - completed:
+    hackage: servant-htmx-0.1.0.1@sha256:280470ac28adb11362929915dce69af0ba5edae9355b09a80d91b558b9fcff7a,1817
+    pantry-tree:
+      size: 415
+      sha256: 388bad47143abf00e408a48bf11e1cc06e31338f5703e22d5a43dcb3d7ecf945
+  original:
+    hackage: servant-htmx-0.1.0.1@sha256:280470ac28adb11362929915dce69af0ba5edae9355b09a80d91b558b9fcff7a,1817
+- completed:
     hackage: servant-lucid-0.9.0.4@sha256:698db96903a145fdef40cc897f8790728642af917c37b941a98b2da872b65f08,1787
     pantry-tree:
       size: 392

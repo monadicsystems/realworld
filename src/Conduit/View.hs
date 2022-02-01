@@ -5,7 +5,7 @@
 
 module Conduit.View where
 
-import Conduit.Model
+import qualified Conduit.Model as Model
 import Lucid
 import Lucid.Htmx
 import Lucid.Hyperscript (useHyperscript, __)
@@ -115,6 +115,16 @@ instance ToHtml Home where
   toHtmlRaw = toHtml
 
 data Auth = Auth
+
+data SignUpForm = SignUpForm
+
+instance ToHtml SignUpForm where
+  toHtml SignUpForm = h1_ [] ""
+
+data SignInForm = SignInForm
+
+instance ToHtml SignInForm where
+  toHtml SignInForm = h1_ [] ""
 
 instance ToHtml Auth where
   toHtml Auth =

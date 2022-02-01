@@ -47,6 +47,7 @@ extra-deps:
 - lucid-hyperscript-0.1.0.2@sha256:c3b048424e75c0e9cbadc30f7ebeb6abc164c2b45b2c995fd0674d4cc57be216,2035
 - postgresql-syntax-0.4@sha256:df8b65a33f4088eddad25cedbec814e5f34f8e8ae55065139b73bd6da0d66f21,4176
 - selective-0.5@sha256:dff7715af7cc652f2e695e17674e2b1016ea4f675357291dc78a1f7a3ee5a17f,3470
+- servant-htmx-0.1.0.1@sha256:280470ac28adb11362929915dce69af0ba5edae9355b09a80d91b558b9fcff7a,1817
 - servant-lucid-0.9.0.4@sha256:698db96903a145fdef40cc897f8790728642af917c37b941a98b2da872b65f08,1787
 
 # Override default flag values for local packages and extra-deps

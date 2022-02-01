@@ -1,6 +1,6 @@
 module Main where
 
-import Conduit
+import Conduit (runApp)
 
 main :: IO ()
-main = print "Hello world"
+main = runApp 8080

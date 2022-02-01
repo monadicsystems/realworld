@@ -35,15 +35,22 @@ library
   hs-source-dirs:
       src
   build-depends:
-      base >=4.7 && <5
+      aeson
+    , base >=4.7 && <5
     , hasql
     , hasql-th
     , lucid
     , lucid-htmx
     , lucid-hyperscript
     , servant
+    , servant-auth
+    , servant-auth-server
+    , servant-htmx
     , servant-lucid
     , servant-server
+    , text
+    , time
+    , warp
   default-language: Haskell2010
 
 executable realworld-exe
@@ -54,7 +61,8 @@ executable realworld-exe
       app
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      base >=4.7 && <5
+      aeson
+    , base >=4.7 && <5
     , hasql
     , hasql-th
     , lucid
@@ -62,8 +70,14 @@ executable realworld-exe
     , lucid-hyperscript
     , realworld
     , servant
+    , servant-auth
+    , servant-auth-server
+    , servant-htmx
     , servant-lucid
     , servant-server
+    , text
+    , time
+    , warp
   default-language: Haskell2010
 
 test-suite realworld-test
@@ -75,7 +89,8 @@ test-suite realworld-test
       test
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      base >=4.7 && <5
+      aeson
+    , base >=4.7 && <5
     , hasql
     , hasql-th
     , lucid
@@ -83,6 +98,12 @@ test-suite realworld-test
     , lucid-hyperscript
     , realworld
     , servant
+    , servant-auth
+    , servant-auth-server
+    , servant-htmx
     , servant-lucid
     , servant-server
+    , text
+    , time
+    , warp
   default-language: Haskell2010
