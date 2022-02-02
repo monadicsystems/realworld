@@ -11,22 +11,36 @@ import Conduit.Resource as Resource
 import Control.Monad.IO.Class (liftIO)
 import Data.Proxy
 import Data.Text
+import Lucid
 import Network.Wai.Handler.Warp (run)
+import Servant
+import Servant.API
 import Servant.Auth
 import Servant.Auth.Server
 import Servant.Server
-import Servant.API
-import Servant
-import Lucid
 
 unprotectedServer :: CookieSettings -> JWTSettings -> Server UnprotectedRoutes
 unprotectedServer cookieSettings jwtSettings =
-  pure (Resource.Wrapper Resource.Home)
-    :<|> pure Resource.SignUpForm
-    :<|> pure Resource.SignInForm
+  homeHandler
+    :<|> signUpFormHandler
+    :<|> signInFormHandler
     :<|> authorizeSignUp cookieSettings jwtSettings
     :<|> authorizeSignIn cookieSettings jwtSettings
   where
+    wrapIfHXRequest :: ToHtml a => a -> Maybe Text -> Handler (Resource.Partial a)
+    wrapIfHXRequest partial hxRequestHeader = pure $ case hxRequestHeader of
+      Just "true" -> Resource.NotWrapped partial
+      _ -> Resource.Wrapped partial
+
+    homeHandler :: Maybe Text -> Handler (Resource.Partial Resource.Home)
+    homeHandler = wrapIfHXRequest Resource.Home
+
+    signUpFormHandler :: Maybe Text -> Handler (Resource.Partial Resource.SignUpForm)
+    signUpFormHandler = wrapIfHXRequest Resource.SignUpForm
+
+    signInFormHandler :: Maybe Text -> Handler (Resource.Partial Resource.SignInForm)
+    signInFormHandler = wrapIfHXRequest Resource.SignInForm
+
     authorizeSignUp ::
       CookieSettings ->
       JWTSettings ->
@@ -43,7 +57,7 @@ unprotectedServer cookieSettings jwtSettings =
 
 protectedServer :: AuthResult Model.User -> Server ProtectedRoutes
 protectedServer (Authenticated user) =
-  pure $ h1_ [] "Authorized"
+  pure Resource.Profile
 protectedServer _ = throwAll err401
 
 server :: CookieSettings -> JWTSettings -> Server Routes
