@@ -28,8 +28,8 @@ library
       Conduit
       Conduit.Database
       Conduit.Model
+      Conduit.Resource
       Conduit.Server
-      Conduit.View
   other-modules:
       Paths_realworld
   hs-source-dirs:

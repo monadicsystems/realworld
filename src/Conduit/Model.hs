@@ -46,7 +46,12 @@ newtype Comment = Comment
 
 data SignInForm = SignInForm deriving (FromJSON, Generic)
 
-data SignUpForm = SignUpForm deriving (FromJSON, Generic)
+data SignUpForm = SignUpForm
+  { signUpFormEmail :: Text
+  , signUpFormPassword :: Text
+  , signUpFormUsername :: Text
+  }
+  deriving (FromJSON, Generic)
 
 {-
 {
