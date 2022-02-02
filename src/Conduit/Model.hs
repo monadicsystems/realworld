@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Conduit.Model where
 
@@ -44,14 +45,28 @@ newtype Comment = Comment
   }
   deriving (Eq, Show)
 
-data SignInForm = SignInForm deriving (FromJSON, Generic)
-
-data SignUpForm = SignUpForm
-  { signUpFormEmail :: Text
-  , signUpFormPassword :: Text
-  , signUpFormUsername :: Text
+data SignInForm = SignInForm
+  { signInFormName :: Text,
+    signInFormPassword :: Text
   }
   deriving (FromJSON, Generic)
+
+data SignUpForm = SignUpForm
+  { signUpFormEmail :: Text,
+    signUpFormPassword :: Text,
+    signUpFormUsername :: Text
+  }
+  deriving (FromJSON, Generic, Show)
+
+instance ToJSON SignUpForm where
+  toJSON (SignUpForm email password username) =
+    object
+      [ "email" .= email,
+        "password" .= password,
+        "username" .= username
+      ]
+
+blankSignUpForm = SignUpForm "" "" ""
 
 {-
 {

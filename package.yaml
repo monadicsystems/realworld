@@ -22,6 +22,8 @@ description:         Please see the README on GitHub at <https://github.com/gith
 dependencies:
 - aeson
 - base >= 4.7 && < 5
+- containers
+- forma
 - hasql
 - hasql-th
 - lucid
@@ -35,6 +37,7 @@ dependencies:
 - servant-server
 - text
 - time
+- transformers
 - warp
 
 library:
