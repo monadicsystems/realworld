@@ -20,14 +20,14 @@ type SignUpFormFields = '["email", "password", "username"]
 signInForm :: Monad m => FormParser SignInFormFields (Text -> Text) m SignInForm
 signInForm =
   SignInForm
-    <$> field #email (notEmpty >=> validEmail)
-    <*> field #password (notEmpty >=> tooShort)
+    <$> field #email (notEmpty {- >=> validEmail -})
+    <*> field #password (notEmpty {- >=> tooShort -})
 
 signUpForm :: Monad m => FormParser SignUpFormFields (Text -> Text) m SignUpForm
 signUpForm =
   SignUpForm
-    <$> field #email (notEmpty >=> validEmail)
-    <*> field #password (notEmpty >=> tooShort)
+    <$> field #email (notEmpty {- >=> validEmail -})
+    <*> field #password (notEmpty {- >=> tooShort -})
     <*> field #username notEmpty
 
 notEmpty :: Monad m => Text -> ExceptT (Text -> Text) m Text

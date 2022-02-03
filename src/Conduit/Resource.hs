@@ -30,12 +30,90 @@ import Servant.Links
 import Servant.Server
 
 -- VIEWS START --
-data Partial a = Wrapped a | NotWrapped a
+data Partial a = Wrapped (Maybe Model.User) a | NotWrapped a
 
 toUrl link = "/" <> toUrlPiece link
 
+data Navbar = Navbar Bool | LoggedInNavbar Bool Model.User
+
+instance ToHtml Navbar where
+  toHtml (Navbar isOob) = do
+    nav_
+      [ id_ "navbar",
+        class_ "navbar navbar-light",
+        hxBoost_ "true",
+        hxTarget_ "#content-slot",
+        hxPushUrlSafe_ (Left True),
+        if isOob then hxSwapOob_ "true" else class_ ""
+      ]
+      $ div_ [class_ "container"] $ do
+        a_ [class_ "navbar-brand", hxGetSafe_ homeLink, href_ $ toUrl homeLink] "conduit"
+        ul_ [class_ "nav navbar-nav pull-xs-right"] $ do
+          li_ [class_ "nav-item"] $
+            a_ [class_ "nav-link", hxGetSafe_ homeLink, href_ $ toUrl homeLink, [__| on currentUrlChanged log 50000 |]] "Home"
+          li_ [class_ "nav-item"] $ a_ [class_ "nav-link", hxGetSafe_ signInFormLink, href_ $ toUrl signInFormLink] "Sign in"
+          li_ [class_ "nav-item"] $ a_ [class_ "nav-link", hxGetSafe_ signUpFormLink, href_ $ toUrl signUpFormLink] "Sign up"
+  toHtml (LoggedInNavbar isOob (Model.User bio email imageUrl username)) = do
+    nav_
+      [ id_ "navbar",
+        class_ "navbar navbar-light",
+        hxBoost_ "true",
+        hxTarget_ "#content-slot",
+        hxPushUrlSafe_ (Left True),
+        if isOob then hxSwapOob_ "true" else class_ ""
+      ]
+      $ div_ [class_ "container"] $ do
+        a_
+          [ class_ "navbar-brand",
+            hxGetSafe_ homeLink,
+            href_ $ toUrl homeLink
+          ]
+          "conduit"
+        ul_ [class_ "nav navbar-nav pull-xs-right"] $ do
+          li_ [class_ "nav-item"] $
+            a_
+              [ class_ "nav-link",
+                hxGetSafe_ homeLink,
+                href_ $ toUrl homeLink
+              ]
+              "Home"
+          li_ [class_ "nav-item"] $
+            a_
+              [ class_ "nav-link",
+                href_ ""
+              ]
+              $ do
+                i_ [class_ "ion-compose"] ""
+                "New Article"
+          li_ [class_ "nav-item"] $
+            a_
+              [ class_ "nav-link",
+                href_ ""
+              ]
+              $ do
+                i_ [class_ "ion-gear-a"] ""
+                "Settings"
+          li_ [class_ "nav-item"] $
+            a_ [class_ "nav-link", href_ ""] $ do
+              img_ [class_ "user-pic", src_ imageUrl]
+              toHtml $ " " <> username <> " "
+  toHtmlRaw = toHtml
+
+data Footer = Footer
+
+instance ToHtml Footer where
+  toHtml _ =
+    footer_ $
+      div_ [class_ "container"] $ do
+        a_ [href_ "/", class_ "logo-font"] "conduit"
+        span_ [class_ "attribution"] $ do
+          "          An interactive learning project from "
+          a_ [href_ "https://thinkster.io"] "Thinkster"
+          ". Code & design licensed under MIT.        "
+  toHtmlRaw = toHtml
+
 instance ToHtml a => ToHtml (Partial a) where
-  toHtml (Wrapped content) =
+  toHtml (Wrapped mbUser content) =
     html_ $ do
       head_ $ do
         meta_ [charset_ "utf-8"]
@@ -49,45 +127,23 @@ instance ToHtml a => ToHtml (Partial a) where
         [_hs|
           on htmx:pushedIntoHistory(detail) set $currentUrl to detail.path
           then trigger currentUrlChanged
-          -- then log $currentUrl
+          then log $currentUrl
           -- then trigger currentUrlChanged
         |]
       body_ $ do
-        -- NAVBAR START
-        nav_ [class_ "navbar navbar-light", hxBoost_ "true", hxTarget_ "#content-slot", hxPushUrlSafe_ (Left True)] $
-          div_ [class_ "container"] $ do
-            a_ [class_ "navbar-brand", hxGetSafe_ homeLink, href_ $ toUrl homeLink] "conduit"
-            ul_ [class_ "nav navbar-nav pull-xs-right"] $ do
-              li_ [class_ "nav-item"] $
-                a_ [class_ "nav-link", hxGetSafe_ homeLink, href_ $ toUrl homeLink, [__| on currentUrlChanged log 50000 |]] "Home"
-              li_ [class_ "nav-item"] $
-                a_ [class_ "nav-link", href_ ""] $ do
-                  i_ [class_ "ion-compose"] ""
-                  "New Article"
-              li_ [class_ "nav-item"] $
-                a_ [class_ "nav-link", href_ ""] $ do
-                  i_ [class_ "ion-gear-a"] ""
-                  "Settings"
-              li_ [class_ "nav-item"] $ a_ [class_ "nav-link", hxGetSafe_ signInFormLink, href_ $ toUrl signInFormLink] "Sign in"
-              li_ [class_ "nav-item"] $ a_ [class_ "nav-link", hxGetSafe_ signUpFormLink, href_ $ toUrl signUpFormLink] "Sign up"
-        -- NAVBAR END
+        -- NAVBAR
+        case mbUser of
+          Nothing -> toHtml $ Navbar False
+          Just user -> toHtml $ LoggedInNavbar False user
 
         div_ [id_ "content-slot"] $ toHtml content
 
-        -- FOOTER START
-        footer_ $
-          div_ [class_ "container"] $ do
-            a_ [href_ "/", class_ "logo-font"] "conduit"
-            span_ [class_ "attribution"] $ do
-              "          An interactive learning project from "
-              a_ [href_ "https://thinkster.io"] "Thinkster"
-              ". Code & design licensed under MIT.        "
+        -- FOOTER
+        toHtml Footer
   toHtml (NotWrapped a) = toHtml a
-
-  -- FOOTER END
   toHtmlRaw = toHtml
 
-data Home = Home
+data Home = Home | LoggedInHome Model.User
 
 instance ToHtml Home where
   toHtml Home =
@@ -101,11 +157,57 @@ instance ToHtml Home where
           div_ [class_ "col-md-9"] $ do
             div_ [class_ "feed-toggle"] $
               ul_ [class_ "nav nav-pills outline-active"] $ do
-                li_ [class_ "nav-item"] $ a_ [class_ "nav-link disabled", href_ ""] "Your Feed"
                 li_ [class_ "nav-item"] $ a_ [class_ "nav-link active", href_ ""] "Global Feed"
             div_ [class_ "article-preview"] $ do
               div_ [class_ "article-meta"] $ do
                 a_ [href_ "profile.html"] $ img_ [src_ "http://i.imgur.com/Qr71crq.jpg"]
+                div_ [class_ "info"] $ do
+                  a_ [href_ "", class_ "author"] "Eric Simons"
+                  span_ [class_ "date"] "January 20th"
+                button_ [class_ "btn btn-outline-primary btn-sm pull-xs-right"] $ do
+                  i_ [class_ "ion-heart"] ""
+                  " 29\n                        "
+              a_ [href_ "", class_ "preview-link"] $ do
+                h1_ "How to build webapps that scale"
+                p_ "This is the description for the post."
+                span_ "Read more..."
+            div_ [class_ "article-preview"] $ do
+              div_ [class_ "article-meta"] $ do
+                a_ [href_ "profile.html"] $ img_ [src_ "http://i.imgur.com/N4VcUeJ.jpg"]
+                div_ [class_ "info"] $ do
+                  a_ [href_ "", class_ "author"] "Albert Pai"
+                  span_ [class_ "date"] "January 20th"
+                button_ [class_ "btn btn-outline-primary btn-sm pull-xs-right"] $ do
+                  i_ [class_ "ion-heart"] ""
+                  " 32\n                        "
+              a_ [href_ "", class_ "preview-link"] $ do
+                h1_ "The song you won't ever stop singing. No matter how hard you try."
+                p_ "This is the description for the post."
+                span_ "Read more..."
+          div_ [class_ "col-md-3"] $
+            div_ [class_ "sidebar"] $ do
+              p_ "Popular Tags"
+              div_ [class_ "tag-list"] $ do
+                a_ [href_ "", class_ "tag-pill tag-default"] "programming"
+                a_ [href_ "", class_ "tag-pill tag-default"] "javascript"
+                a_ [href_ "", class_ "tag-pill tag-default"] "emberjs"
+                a_ [href_ "", class_ "tag-pill tag-default"] "angularjs"
+                a_ [href_ "", class_ "tag-pill tag-default"] "react"
+                a_ [href_ "", class_ "tag-pill tag-default"] "mean"
+                a_ [href_ "", class_ "tag-pill tag-default"] "node"
+                a_ [href_ "", class_ "tag-pill tag-default"] "rails"
+  toHtml (LoggedInHome user) =
+    div_ [class_ "home-page"] $ do
+      div_ [class_ "container page"] $
+        div_ [class_ "row"] $ do
+          div_ [class_ "col-md-9"] $ do
+            div_ [class_ "feed-toggle"] $
+              ul_ [class_ "nav nav-pills outline-active"] $ do
+                li_ [class_ "nav-item"] $ a_ [class_ "nav-link active", href_ ""] "Your Feed"
+                li_ [class_ "nav-item"] $ a_ [class_ "nav-link disabled", href_ ""] "Global Feed"
+            div_ [class_ "article-preview"] $ do
+              div_ [class_ "article-meta"] $ do
+                a_ [href_ ""] $ img_ [src_ "http://i.imgur.com/Qr71crq.jpg"]
                 div_ [class_ "info"] $ do
                   a_ [href_ "", class_ "author"] "Eric Simons"
                   span_ [class_ "date"] "January 20th"
@@ -166,21 +268,22 @@ instance ToHtml SignUpForm where
               button_ [class_ "btn btn-lg btn-primary pull-xs-right"] "Sign up"
   toHtmlRaw = toHtml
 
-data SignInForm = SignInForm
+data SignInForm = SignInForm Model.SignInForm [Text]
 
 instance ToHtml SignInForm where
-  toHtml SignInForm =
+  toHtml (SignInForm (Model.SignInForm email password) errors) =
     div_ [class_ "auth-page"] $
       div_ [class_ "container page"] $
         div_ [class_ "row"] $
           div_ [class_ "col-md-6 offset-md-3 col-xs-12"] $ do
             h1_ [class_ "text-xs-center"] "Sign in"
             p_ [class_ "text-xs-center"] $ a_ [hxBoost_ "true", hxTarget_ "#content-slot", hxPushUrlSafe_ (Left True), href_ $ toUrl signUpFormLink] "Need an account?"
-            -- ul_ [class_ "error-messages"] $ li_ "That email is already taken"
+            case errors of
+              [] -> ""
+              errors' -> ul_ [class_ "error-messages"] $ mapM_ (li_ [] . toHtml) errors'
             form_ [hxPost_ $ toUrl signInFormSubmitLink, hxExt_ "json-enc", hxTarget_ "#content-slot"] $ do
-              -- fieldset_ [class_ "form-group"] $ input_ [class_ "form-control form-control-lg", type_ "text", placeholder_ "Your Name"]
-              fieldset_ [class_ "form-group"] $ input_ [class_ "form-control form-control-lg", type_ "text", name_ "signInFormName", placeholder_ "Email"]
-              fieldset_ [class_ "form-group"] $ input_ [class_ "form-control form-control-lg", type_ "password", name_ "signInFormPassword", placeholder_ "Password"]
+              fieldset_ [class_ "form-group"] $ input_ [class_ "form-control form-control-lg", type_ "text", name_ "signInFormEmail", placeholder_ "Email", value_ email]
+              fieldset_ [class_ "form-group"] $ input_ [class_ "form-control form-control-lg", type_ "password", name_ "signInFormPassword", placeholder_ "Password", value_ password]
               button_ [class_ "btn btn-lg btn-primary pull-xs-right"] "Sign in"
   toHtmlRaw = toHtml
 
@@ -342,20 +445,24 @@ instance ToHtml Article where
 
 data SignUpResponse
   = SignUpFailure Model.SignUpForm [Text]
-  | SignUpSuccess
+  | SignUpSuccess Model.User
 
 instance ToHtml SignUpResponse where
   toHtml (SignUpFailure signUpForm errors) = toHtml $ SignUpForm signUpForm errors
-  toHtml SignUpSuccess = toHtml Home
+  toHtml (SignUpSuccess user) = do
+    toHtml $ LoggedInHome user
+    toHtml $ LoggedInNavbar True user
   toHtmlRaw = toHtml
 
 data SignInResponse
-  = SignInFailure [Text]
-  | SignInSuccess
+  = SignInFailure Model.SignInForm [Text]
+  | SignInSuccess Model.User
 
 instance ToHtml SignInResponse where
-  toHtml (SignInFailure errors) = undefined
-  toHtml SignInSuccess = toHtml Home
+  toHtml (SignInFailure signInForm errors) = toHtml $ SignInForm signInForm errors
+  toHtml (SignInSuccess user) = do
+    toHtml $ LoggedInHome user
+    toHtml $ LoggedInNavbar True user
   toHtmlRaw = toHtml
 
 -- VIEWS END --
@@ -385,11 +492,11 @@ type UnprotectedRoutes =
     :<|> SignUpFormSubmitRoute
     :<|> SignInFormSubmitRoute
 
-type ProtectedRoutes = "profile" :> HXRequest :> Get '[HTML] (Partial Profile)
+type ProtectedRoutes = HomeRoute
 
 type Routes =
-  UnprotectedRoutes
-    :<|> Auth '[Cookie] Model.User :> ProtectedRoutes
+  (Auth '[Cookie] Model.User :> ProtectedRoutes)
+    :<|> UnprotectedRoutes
 
 -- ROUTES END --
 

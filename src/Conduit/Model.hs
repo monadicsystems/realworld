@@ -23,7 +23,7 @@ data WithMeta a = WithMeta
 data User = User
   { userBio :: Text,
     userEmail :: Text,
-    userImage :: Text,
+    userImageUrl :: Text,
     userUsername :: Text
   }
   deriving (Eq, Show, Generic, FromJSON, FromJWT, ToJSON, ToJWT)
@@ -46,10 +46,17 @@ newtype Comment = Comment
   deriving (Eq, Show)
 
 data SignInForm = SignInForm
-  { signInFormName :: Text,
+  { signInFormEmail :: Text,
     signInFormPassword :: Text
   }
-  deriving (FromJSON, Generic)
+  deriving (FromJSON, Generic, Show)
+
+instance ToJSON SignInForm where
+  toJSON (SignInForm email password) =
+    object
+      [ "email" .= email,
+        "password" .= password
+      ]
 
 data SignUpForm = SignUpForm
   { signUpFormEmail :: Text,
@@ -67,6 +74,8 @@ instance ToJSON SignUpForm where
       ]
 
 blankSignUpForm = SignUpForm "" "" ""
+
+blankSignInForm = SignInForm "" ""
 
 {-
 {
