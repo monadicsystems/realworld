@@ -139,7 +139,13 @@ protectedServer (Authenticated user) = authHandler user -- if authenticated go t
 protectedServer _ = noAuthHandler -- if not auth is there then redirect accordingly
 
 authHandler :: Model.User -> Server ProtectedRoutes
-authHandler user = homeHandler :<|> editorHandler :<|> settingsHandler
+authHandler user =
+  homeHandler
+    :<|> profileHandler
+    :<|> followHandler
+    :<|> unfollowHandler
+    :<|> editorHandler
+    :<|> settingsHandler
   where
     homeHandler :: Maybe Text -> Handler (Partial Home)
     homeHandler hxReq =
@@ -147,14 +153,23 @@ authHandler user = homeHandler :<|> editorHandler :<|> settingsHandler
         Just "true" -> pure $ View.NotWrapped $ View.Home (Just user)
         _ -> pure $ View.Wrapped (Just user) $ View.Home (Just user)
 
+    followHandler :: Model.FollowForm -> Handler UnfollowButton
+    followHandler = undefined
+
+    unfollowHandler :: Model.UnfollowForm -> Handler FollowButton
+    unfollowHandler = undefined
+
+    profileHandler :: Maybe Text -> Text -> Handler (Partial Profile)
+    profileHandler hxReq mbUsername = undefined
+
     editorHandler :: Maybe Text -> Handler (Partial Editor)
-    editorHandler hxReq = do
+    editorHandler hxReq =
       case hxReq of
         Just "true" -> pure $ View.NotWrapped View.Editor
         _ -> pure $ View.Wrapped (Just user) View.Editor
 
     settingsHandler :: Maybe Text -> Handler (Partial Settings)
-    settingsHandler hxReq = do
+    settingsHandler hxReq =
       case hxReq of
         Just "true" -> pure $ View.NotWrapped $ View.Settings user
         _ -> pure $ View.Wrapped (Just user) $ View.Settings user
@@ -162,16 +177,22 @@ authHandler user = homeHandler :<|> editorHandler :<|> settingsHandler
 noAuthHandler :: Server ProtectedRoutes
 noAuthHandler =
   homeHandler
-    :<|> redirectFor @(Partial Editor)
-    :<|> redirectFor @(Partial Settings)
+    :<|> profileHandler
+    :<|> (\_ -> redirectFor @UnfollowButton)
+    :<|> (\_ -> redirectFor @FollowButton)
+    :<|> (\_ -> redirectFor @(Partial Editor))
+    :<|> (\_ -> redirectFor @(Partial Settings))
   where
     homeHandler :: Maybe Text -> Handler (Partial Home)
     homeHandler hxReq = case hxReq of
       Just "true" -> pure $ View.NotWrapped $ View.Home Nothing
       _ -> pure $ View.Wrapped Nothing $ View.Home Nothing
 
-    redirectFor :: forall a. ToHtml a => Maybe Text -> Handler a
-    redirectFor _ = throwError $ err303 {errHeaders = [("Location", encodeUtf8 $ toUrl signUpFormLink)]}
+    profileHandler :: Maybe Text -> Text -> Handler (Partial Profile)
+    profileHandler = undefined
+
+    redirectFor :: forall a. ToHtml a => Handler a
+    redirectFor = throwError $ err303 {errHeaders = [("Location", encodeUtf8 $ toUrl signUpFormLink)]}
 
 server :: CookieSettings -> JWTSettings -> Server Routes
 server cookieSettings jwtSettings = protectedServer :<|> unprotectedServer cookieSettings jwtSettings

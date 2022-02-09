@@ -50,7 +50,7 @@ data SignInForm = SignInForm
   { signInFormEmail :: Text,
     signInFormPassword :: Text
   }
-  deriving (FromJSON, FromForm, Generic, Show)
+  deriving (FromForm, Generic, Show)
 
 instance ToJSON SignInForm where
   toJSON (SignInForm email password) =
@@ -64,7 +64,7 @@ data SignUpForm = SignUpForm
     signUpFormPassword :: Text,
     signUpFormUsername :: Text
   }
-  deriving (FromJSON, FromForm, Generic, Show)
+  deriving (FromForm, Generic, Show)
 
 instance ToJSON SignUpForm where
   toJSON (SignUpForm email password username) =
@@ -73,6 +73,18 @@ instance ToJSON SignUpForm where
         "password" .= password,
         "username" .= username
       ]
+
+data Follow = Text :-> Text
+
+newtype FollowForm = FollowForm
+  { followFormTarget :: Text
+  }
+  deriving (FromForm, Generic, Show)
+
+newtype UnfollowForm = UnfollowForm
+  { unfollowFormTarget :: Text
+  }
+  deriving (FromForm, Generic, Show)
 
 -- blankSignUpForm = SignUpForm "" "" ""
 

@@ -282,58 +282,75 @@ instance ToHtml SignInForm where
               button_ [class_ "btn btn-lg btn-primary pull-xs-right"] "Sign in"
   toHtmlRaw = toHtml
 
--- Depend on if authed or not.....
-data Profile = Profile Model.User
+data Profile
+  = PrivateProfile Model.User -- current user
+  | PublicProfile
+      Model.User -- other user
+      Bool -- other user is followed?
 
 instance ToHtml Profile where
-  toHtml (Profile (Model.User bio email imageUrl username)) =
-    div_ [class_ "profile-page"] $ do
-      div_ [class_ "user-info"] $
-        div_ [class_ "container"] $
-          div_ [class_ "row"] $
-            div_ [class_ "col-xs-12 col-md-10 offset-md-1"] $ do
-              img_ [src_ imageUrl, class_ "user-img"]
-              h4_ $ toHtml username
-              p_ $ toHtml bio
-              button_ [class_ "btn btn-sm btn-outline-secondary action-btn"] $ do
-                i_ [class_ "ion-plus-round"] ""
-                "Follow " <> toHtml username
-      div_ [class_ "container"] $
-        div_ [class_ "row"] $
-          div_ [class_ "col-xs-12 col-md-10 offset-md-1"] $ do
-            div_ [class_ "articles-toggle"] $
-              ul_ [class_ "nav nav-pills outline-active"] $ do
-                li_ [class_ "nav-item"] $ a_ [class_ "nav-link active", href_ ""] "My Articles"
-                li_ [class_ "nav-item"] $ a_ [class_ "nav-link", href_ ""] "Favorited Articles"
-            div_ [class_ "article-preview"] $ do
-              div_ [class_ "article-meta"] $ do
-                a_ [href_ ""] $ img_ [src_ "http://i.imgur.com/Qr71crq.jpg"]
-                div_ [class_ "info"] $ do
-                  a_ [href_ "", class_ "author"] "Eric Simons"
-                  span_ [class_ "date"] "January 20th"
-                button_ [class_ "btn btn-outline-primary btn-sm pull-xs-right"] $ do
-                  i_ [class_ "ion-heart"] ""
-                  " 29\n                        "
-              a_ [href_ "", class_ "preview-link"] $ do
-                h1_ "How to build webapps that scale"
-                p_ "This is the description for the post."
-                span_ "Read more..."
-            div_ [class_ "article-preview"] $ do
-              div_ [class_ "article-meta"] $ do
-                a_ [href_ ""] $ img_ [src_ "http://i.imgur.com/N4VcUeJ.jpg"]
-                div_ [class_ "info"] $ do
-                  a_ [href_ "", class_ "author"] "Albert Pai"
-                  span_ [class_ "date"] "January 20th"
-                button_ [class_ "btn btn-outline-primary btn-sm pull-xs-right"] $ do
-                  i_ [class_ "ion-heart"] ""
-                  " 32\n                        "
-              a_ [href_ "", class_ "preview-link"] $ do
-                h1_ "The song you won't ever stop singing. No matter how hard you try."
-                p_ "This is the description for the post."
-                span_ "Read more..."
-                ul_ [class_ "tag-list"] $ do
-                  li_ [class_ "tag-default tag-pill tag-outline"] "Music"
-                  li_ [class_ "tag-default tag-pill tag-outline"] "Song"
+  toHtml profile =
+    case profile of
+      PrivateProfile currentUser ->
+        profileTemplate currentUser $
+          a_
+            [ class_ "btn btn-sm btn-outline-secondary action-btn",
+              hxGetSafe_ settingsLink,
+              href_ $ toUrl settingsLink
+            ]
+            $ do
+              i_ [class_ "ion-gear-a"] ""
+              "Edit Profile Settings"
+      PublicProfile otherUser following ->
+        profileTemplate otherUser $ if following then toHtml $ UnfollowButton $ Model.userUsername otherUser else toHtml $ FollowButton $ Model.userUsername otherUser
+    where
+      profileTemplate :: Monad m => Model.User -> HtmlT m () -> HtmlT m ()
+      profileTemplate (Model.User bio email imageUrl username) action =
+        div_ [class_ "profile-page"] $ do
+          div_ [class_ "user-info"] $
+            div_ [class_ "container"] $
+              div_ [class_ "row"] $
+                div_ [class_ "col-xs-12 col-md-10 offset-md-1"] $ do
+                  img_ [src_ imageUrl, class_ "user-img"]
+                  h4_ $ toHtml username
+                  p_ $ toHtml bio
+
+          div_ [class_ "container"] $
+            div_ [class_ "row"] $
+              div_ [class_ "col-xs-12 col-md-10 offset-md-1"] $ do
+                div_ [class_ "articles-toggle"] $
+                  ul_ [class_ "nav nav-pills outline-active"] $ do
+                    li_ [class_ "nav-item"] $ a_ [class_ "nav-link active", href_ ""] "My Articles"
+                    li_ [class_ "nav-item"] $ a_ [class_ "nav-link", href_ ""] "Favorited Articles"
+                div_ [class_ "article-preview"] $ do
+                  div_ [class_ "article-meta"] $ do
+                    a_ [href_ ""] $ img_ [src_ "http://i.imgur.com/Qr71crq.jpg"]
+                    div_ [class_ "info"] $ do
+                      a_ [href_ "", class_ "author"] "Eric Simons"
+                      span_ [class_ "date"] "January 20th"
+                    button_ [class_ "btn btn-outline-primary btn-sm pull-xs-right"] $ do
+                      i_ [class_ "ion-heart"] ""
+                      " 29\n                        "
+                  a_ [href_ "", class_ "preview-link"] $ do
+                    h1_ "How to build webapps that scale"
+                    p_ "This is the description for the post."
+                    span_ "Read more..."
+                div_ [class_ "article-preview"] $ do
+                  div_ [class_ "article-meta"] $ do
+                    a_ [href_ ""] $ img_ [src_ "http://i.imgur.com/N4VcUeJ.jpg"]
+                    div_ [class_ "info"] $ do
+                      a_ [href_ "", class_ "author"] "Albert Pai"
+                      span_ [class_ "date"] "January 20th"
+                    button_ [class_ "btn btn-outline-primary btn-sm pull-xs-right"] $ do
+                      i_ [class_ "ion-heart"] ""
+                      " 32\n                        "
+                  a_ [href_ "", class_ "preview-link"] $ do
+                    h1_ "The song you won't ever stop singing. No matter how hard you try."
+                    p_ "This is the description for the post."
+                    span_ "Read more..."
+                    ul_ [class_ "tag-list"] $ do
+                      li_ [class_ "tag-default tag-pill tag-outline"] "Music"
+                      li_ [class_ "tag-default tag-pill tag-outline"] "Song"
   toHtmlRaw = toHtml
 
 data Settings = Settings Model.User
@@ -490,6 +507,36 @@ instance ToHtml SignInResponse where
     toHtml $ Navbar (Just user) True
   toHtmlRaw = toHtml
 
+data FollowButton = FollowButton Text
+
+instance ToHtml FollowButton where
+  toHtml (FollowButton followee) =
+    button_
+      [ class_ "btn btn-sm btn-outline-secondary action-btn",
+        hxPostSafe_ followLink,
+        hxSwap_ "outerHTML",
+        hxVals_ $ "{\"followFormTarget\": \"" <> followee <> "\"}"
+      ]
+      $ do
+        i_ [class_ "ion-plus-round"] ""
+        "Follow " <> toHtml followee
+  toHtmlRaw = toHtml
+
+data UnfollowButton = UnfollowButton Text
+
+instance ToHtml UnfollowButton where
+  toHtml (UnfollowButton unfollowee) =
+    button_
+      [ class_ "btn btn-sm btn-outline-secondary action-btn",
+        hxPostSafe_ unfollowLink,
+        hxSwap_ "outerHTML",
+        hxVals_ $ "{\"unfollowFormTarget\": \"" <> unfollowee <> "\"}"
+      ]
+      $ do
+        i_ [class_ "ion-plus-round"] ""
+        "Unfollow " <> toHtml unfollowee
+  toHtmlRaw = toHtml
+
 -- VIEWS END --
 
 -- ROUTES START --
@@ -519,13 +566,23 @@ type UnprotectedRoutes =
 
 type HomeRoute = HXRequest :> Get '[HTML] (Partial Home)
 
--- type ProfileRoute = Capture "username" Text :> HXRequest :> Get '[HTML] (Partial Profile)
+type ProfileRoute = "profile" :> HXRequest :> Capture "username" Text :> Get '[HTML] (Partial Profile)
+
+type FollowRoute = "follow" :> ReqBody '[FormUrlEncoded] Model.FollowForm :> Post '[HTML] UnfollowButton
+
+type UnfollowRoute = "unfollow" :> ReqBody '[FormUrlEncoded] Model.UnfollowForm :> Post '[HTML] FollowButton
 
 type EditorRoute = "editor" :> HXRequest :> Get '[HTML] (Partial Editor)
 
 type SettingsRoute = "settings" :> HXRequest :> Get '[HTML] (Partial Settings)
 
-type ProtectedRoutes = HomeRoute {- :<|> ProfileRoute -} :<|> EditorRoute :<|> SettingsRoute
+type ProtectedRoutes =
+  HomeRoute
+    :<|> ProfileRoute
+    :<|> FollowRoute
+    :<|> UnfollowRoute
+    :<|> EditorRoute
+    :<|> SettingsRoute
 
 type Routes =
   (Auth '[Cookie] Model.User :> ProtectedRoutes)
@@ -545,9 +602,6 @@ getLink ::
   MkLink endpoint Link
 getLink = safeLink $ proxy @Routes
 
--- homeLink :: Link
--- homeLink = getLink $ proxy @HomeRoute
-
 signInFormLink :: Link
 signInFormLink = getLink $ proxy @SignInFormRoute
 
@@ -562,6 +616,15 @@ signUpFormSubmitLink = getLink $ proxy @SignUpFormSubmitRoute
 
 homeLink :: Link
 homeLink = getLink $ proxy @(Auth '[Cookie] Model.User :> HomeRoute)
+
+profileLink :: Text -> Link
+profileLink = getLink $ proxy @(Auth '[Cookie] Model.User :> ProfileRoute)
+
+followLink :: Link
+followLink = getLink $ proxy @(Auth '[Cookie] Model.User :> FollowRoute)
+
+unfollowLink :: Link
+unfollowLink = getLink $ proxy @(Auth '[Cookie] Model.User :> UnfollowRoute)
 
 editorLink :: Link
 editorLink = getLink $ proxy @(Auth '[Cookie] Model.User :> EditorRoute)
