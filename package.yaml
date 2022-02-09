@@ -26,6 +26,7 @@ dependencies:
 - forma
 - hasql
 - hasql-th
+- http-api-data
 - lucid
 - lucid-htmx
 - lucid-hyperscript

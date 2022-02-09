@@ -1,11 +1,11 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Conduit.Server where
 
 import Conduit.Database
-import Conduit.Model (SignInForm (SignInForm), blankSignInForm, blankSignUpForm)
 import qualified Conduit.Model as Model
 import Conduit.Resource as Resource
 import qualified Conduit.Resource as View
@@ -17,10 +17,10 @@ import Data.Function ((&))
 import Data.Map.Strict (toList)
 import Data.Proxy
 import Data.Text
+import Data.Text.Encoding (encodeUtf8)
 import Lucid
 import Network.Wai.Handler.Warp (run)
 import Servant
-import Servant (addHeader)
 import Servant.API
 import Servant.Auth
 import Servant.Auth.Server
@@ -28,33 +28,27 @@ import Servant.Htmx
 import Servant.Server
 import Web.Forma (FormResult (..), runForm, showFieldName)
 
--- wrapIfHXRequest :: ToHtml a => Maybe Model.User -> a -> Maybe Text -> Handler (Resource.Partial a)
--- wrapIfHXRequest mbUser partial hxRequestHeader = pure $ case hxRequestHeader of
---   Just "true" -> Resource.NotWrapped partial
---   _ -> Resource.Wrapped mbUser partial
-
 unprotectedServer :: CookieSettings -> JWTSettings -> Server UnprotectedRoutes
 unprotectedServer cookieSettings jwtSettings =
-  homeHandler
-    :<|> signUpFormHandler
+  signUpFormHandler
     :<|> signInFormHandler
     :<|> authorizeSignUp cookieSettings jwtSettings
     :<|> authorizeSignIn cookieSettings jwtSettings
   where
-    homeHandler :: Maybe Text -> Handler (Resource.Partial Resource.Home)
-    homeHandler hxReq = pure $ case hxReq of
-      Just "true" -> Resource.NotWrapped Resource.Home
-      _ -> Resource.Wrapped Nothing Resource.Home
+    -- homeHandler :: Maybe Text -> Handler (Resource.Partial Resource.Home)
+    -- homeHandler hxReq = pure $ case hxReq of
+    --   Just "true" -> Resource.NotWrapped $ Resource.Home Nothing
+    --   _ -> Resource.Wrapped Nothing $ Resource.Home Nothing
 
     signUpFormHandler :: Maybe Text -> Handler (Resource.Partial Resource.SignUpForm)
     signUpFormHandler hxReq = pure $ case hxReq of
-      Just "true" -> Resource.NotWrapped $ Resource.SignUpForm blankSignUpForm []
-      _ -> Resource.Wrapped Nothing $ Resource.SignUpForm blankSignUpForm []
+      Just "true" -> Resource.NotWrapped $ Resource.SignUpForm Nothing []
+      _ -> Resource.Wrapped Nothing $ Resource.SignUpForm Nothing []
 
     signInFormHandler :: Maybe Text -> Handler (Resource.Partial Resource.SignInForm)
     signInFormHandler hxReq = pure $ case hxReq of
-      Just "true" -> Resource.NotWrapped $ Resource.SignInForm blankSignInForm []
-      _ -> Resource.Wrapped Nothing $ Resource.SignInForm blankSignInForm []
+      Just "true" -> Resource.NotWrapped $ Resource.SignInForm Nothing []
+      _ -> Resource.Wrapped Nothing $ Resource.SignInForm Nothing []
 
     authorizeSignUp ::
       CookieSettings ->
@@ -141,16 +135,43 @@ unprotectedServer cookieSettings jwtSettings =
                   & pure
 
 protectedServer :: AuthResult Model.User -> Server ProtectedRoutes
-protectedServer (Authenticated user) = handler user
-protectedServer Indefinite = throwAll err404
-protectedServer _ = throwAll err401
+protectedServer (Authenticated user) = authHandler user -- if authenticated go to authed routes
+protectedServer _ = noAuthHandler -- if not auth is there then redirect accordingly
 
-handler :: Model.User -> Maybe Text -> Handler (Partial Home)
-handler user hxReq = do
-  liftIO $ print "Protected endpoint hit"
-  case hxReq of
-    Just "true" -> pure $ View.NotWrapped $ View.LoggedInHome user
-    _ -> pure $ View.Wrapped (Just user) $ View.LoggedInHome user
+authHandler :: Model.User -> Server ProtectedRoutes
+authHandler user = homeHandler :<|> editorHandler :<|> settingsHandler
+  where
+    homeHandler :: Maybe Text -> Handler (Partial Home)
+    homeHandler hxReq =
+      case hxReq of
+        Just "true" -> pure $ View.NotWrapped $ View.Home (Just user)
+        _ -> pure $ View.Wrapped (Just user) $ View.Home (Just user)
+
+    editorHandler :: Maybe Text -> Handler (Partial Editor)
+    editorHandler hxReq = do
+      case hxReq of
+        Just "true" -> pure $ View.NotWrapped View.Editor
+        _ -> pure $ View.Wrapped (Just user) View.Editor
+
+    settingsHandler :: Maybe Text -> Handler (Partial Settings)
+    settingsHandler hxReq = do
+      case hxReq of
+        Just "true" -> pure $ View.NotWrapped $ View.Settings user
+        _ -> pure $ View.Wrapped (Just user) $ View.Settings user
+
+noAuthHandler :: Server ProtectedRoutes
+noAuthHandler =
+  homeHandler
+    :<|> redirectFor @(Partial Editor)
+    :<|> redirectFor @(Partial Settings)
+  where
+    homeHandler :: Maybe Text -> Handler (Partial Home)
+    homeHandler hxReq = case hxReq of
+      Just "true" -> pure $ View.NotWrapped $ View.Home Nothing
+      _ -> pure $ View.Wrapped Nothing $ View.Home Nothing
+
+    redirectFor :: forall a. ToHtml a => Maybe Text -> Handler a
+    redirectFor _ = throwError $ err303 {errHeaders = [("Location", encodeUtf8 $ toUrl signUpFormLink)]}
 
 server :: CookieSettings -> JWTSettings -> Server Routes
 server cookieSettings jwtSettings = protectedServer :<|> unprotectedServer cookieSettings jwtSettings

@@ -9,6 +9,7 @@ import Data.Text
 import Data.Time
 import GHC.Generics
 import Servant.Auth.JWT (FromJWT, ToJWT)
+import Web.FormUrlEncoded (FromForm)
 
 newtype ID a = ID {unID :: Int} deriving (Eq, Show)
 
@@ -49,7 +50,7 @@ data SignInForm = SignInForm
   { signInFormEmail :: Text,
     signInFormPassword :: Text
   }
-  deriving (FromJSON, Generic, Show)
+  deriving (FromJSON, FromForm, Generic, Show)
 
 instance ToJSON SignInForm where
   toJSON (SignInForm email password) =
@@ -63,7 +64,7 @@ data SignUpForm = SignUpForm
     signUpFormPassword :: Text,
     signUpFormUsername :: Text
   }
-  deriving (FromJSON, Generic, Show)
+  deriving (FromJSON, FromForm, Generic, Show)
 
 instance ToJSON SignUpForm where
   toJSON (SignUpForm email password username) =
@@ -73,9 +74,9 @@ instance ToJSON SignUpForm where
         "username" .= username
       ]
 
-blankSignUpForm = SignUpForm "" "" ""
+-- blankSignUpForm = SignUpForm "" "" ""
 
-blankSignInForm = SignInForm "" ""
+-- blankSignInForm = SignInForm "" ""
 
 {-
 {

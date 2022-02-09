@@ -42,6 +42,7 @@ library
     , forma
     , hasql
     , hasql-th
+    , http-api-data
     , lucid
     , lucid-htmx
     , lucid-hyperscript
@@ -71,6 +72,7 @@ executable realworld-exe
     , forma
     , hasql
     , hasql-th
+    , http-api-data
     , lucid
     , lucid-htmx
     , lucid-hyperscript
@@ -102,6 +104,7 @@ test-suite realworld-test
     , forma
     , hasql
     , hasql-th
+    , http-api-data
     , lucid
     , lucid-htmx
     , lucid-hyperscript

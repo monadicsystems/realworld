@@ -32,12 +32,13 @@ import Servant.Server
 -- VIEWS START --
 data Partial a = Wrapped (Maybe Model.User) a | NotWrapped a
 
+toUrl :: ToHttpApiData a => a -> Text
 toUrl link = "/" <> toUrlPiece link
 
-data Navbar = Navbar Bool | LoggedInNavbar Bool Model.User
+data Navbar = Navbar (Maybe Model.User) Bool
 
 instance ToHtml Navbar where
-  toHtml (Navbar isOob) = do
+  toHtml (Navbar mbUser isOob) = do
     nav_
       [ id_ "navbar",
         class_ "navbar navbar-light",
@@ -47,56 +48,38 @@ instance ToHtml Navbar where
         if isOob then hxSwapOob_ "true" else class_ ""
       ]
       $ div_ [class_ "container"] $ do
+        -- TODO: Does it make sense to use hxGet_ and href_ for boost?
         a_ [class_ "navbar-brand", hxGetSafe_ homeLink, href_ $ toUrl homeLink] "conduit"
         ul_ [class_ "nav navbar-nav pull-xs-right"] $ do
           li_ [class_ "nav-item"] $
-            a_ [class_ "nav-link", hxGetSafe_ homeLink, href_ $ toUrl homeLink, [__| on currentUrlChanged log 50000 |]] "Home"
-          li_ [class_ "nav-item"] $ a_ [class_ "nav-link", hxGetSafe_ signInFormLink, href_ $ toUrl signInFormLink] "Sign in"
-          li_ [class_ "nav-item"] $ a_ [class_ "nav-link", hxGetSafe_ signUpFormLink, href_ $ toUrl signUpFormLink] "Sign up"
-  toHtml (LoggedInNavbar isOob (Model.User bio email imageUrl username)) = do
-    nav_
-      [ id_ "navbar",
-        class_ "navbar navbar-light",
-        hxBoost_ "true",
-        hxTarget_ "#content-slot",
-        hxPushUrlSafe_ (Left True),
-        if isOob then hxSwapOob_ "true" else class_ ""
-      ]
-      $ div_ [class_ "container"] $ do
-        a_
-          [ class_ "navbar-brand",
-            hxGetSafe_ homeLink,
-            href_ $ toUrl homeLink
-          ]
-          "conduit"
-        ul_ [class_ "nav navbar-nav pull-xs-right"] $ do
-          li_ [class_ "nav-item"] $
-            a_
-              [ class_ "nav-link",
-                hxGetSafe_ homeLink,
-                href_ $ toUrl homeLink
-              ]
-              "Home"
-          li_ [class_ "nav-item"] $
-            a_
-              [ class_ "nav-link",
-                href_ ""
-              ]
-              $ do
-                i_ [class_ "ion-compose"] ""
-                "New Article"
-          li_ [class_ "nav-item"] $
-            a_
-              [ class_ "nav-link",
-                href_ ""
-              ]
-              $ do
-                i_ [class_ "ion-gear-a"] ""
-                "Settings"
-          li_ [class_ "nav-item"] $
-            a_ [class_ "nav-link", href_ ""] $ do
-              img_ [class_ "user-pic", src_ imageUrl]
-              toHtml $ " " <> username <> " "
+            a_ [class_ "nav-link", hxGetSafe_ homeLink, href_ $ toUrl homeLink] "Home"
+          case mbUser of
+            Nothing -> do
+              li_ [class_ "nav-item"] $ a_ [class_ "nav-link", hxGetSafe_ signInFormLink, href_ $ toUrl signInFormLink] "Sign in"
+              li_ [class_ "nav-item"] $ a_ [class_ "nav-link", hxGetSafe_ signUpFormLink, href_ $ toUrl signUpFormLink] "Sign up"
+            Just (Model.User bio email imageUrl username) -> do
+              li_ [class_ "nav-item"] $
+                a_
+                  [ class_ "nav-link",
+                    hxGetSafe_ editorLink,
+                    href_ $ toUrl editorLink
+                  ]
+                  $ do
+                    i_ [class_ "ion-compose"] ""
+                    "New Article"
+              li_ [class_ "nav-item"] $
+                a_
+                  [ class_ "nav-link",
+                    hxGetSafe_ settingsLink,
+                    href_ $ toUrl settingsLink
+                  ]
+                  $ do
+                    i_ [class_ "ion-gear-a"] ""
+                    "Settings"
+              li_ [class_ "nav-item"] $
+                a_ [class_ "nav-link", href_ ""] $ do
+                  img_ [class_ "user-pic", src_ imageUrl]
+                  toHtml $ " " <> username <> " "
   toHtmlRaw = toHtml
 
 data Footer = Footer
@@ -122,20 +105,18 @@ instance ToHtml a => ToHtml (Partial a) where
         link_ [href_ "//fonts.googleapis.com/css?family=Titillium+Web:700|Source+Serif+Pro:400,700|Merriweather+Sans:400,700|Source+Sans+Pro:400,300,600,700,300italic,400italic,600italic,700italic", rel_ "stylesheet", type_ "text/css"]
         link_ [rel_ "stylesheet", href_ "//demo.productionready.io/main.css"]
         useHtmx
-        useHtmxExtension "json-enc"
+        -- useHtmxExtension "json-enc"
         useHyperscript
         [_hs|
           on htmx:pushedIntoHistory(detail) set $currentUrl to detail.path
           then trigger currentUrlChanged
           then log $currentUrl
-          -- then trigger currentUrlChanged
         |]
       body_ $ do
         -- NAVBAR
-        case mbUser of
-          Nothing -> toHtml $ Navbar False
-          Just user -> toHtml $ LoggedInNavbar False user
+        toHtml $ Navbar mbUser False
 
+        -- CONTENT
         div_ [id_ "content-slot"] $ toHtml content
 
         -- FOOTER
@@ -143,112 +124,94 @@ instance ToHtml a => ToHtml (Partial a) where
   toHtml (NotWrapped a) = toHtml a
   toHtmlRaw = toHtml
 
-data Home = Home | LoggedInHome Model.User
+data Feed
+  = Feed
+      [(Text, Text, Bool)] -- Feed nav pill name, link and whether or not it's active or disabled
+      [Model.Article] -- List of articles
 
-instance ToHtml Home where
-  toHtml Home =
-    div_ [class_ "home-page"] $ do
-      div_ [class_ "banner"] $
-        div_ [class_ "container"] $ do
-          h1_ [class_ "logo-font"] "conduit"
-          p_ "A place to share your knowledge."
-      div_ [class_ "container page"] $
-        div_ [class_ "row"] $ do
-          div_ [class_ "col-md-9"] $ do
-            div_ [class_ "feed-toggle"] $
-              ul_ [class_ "nav nav-pills outline-active"] $ do
-                li_ [class_ "nav-item"] $ a_ [class_ "nav-link active", href_ ""] "Global Feed"
-            div_ [class_ "article-preview"] $ do
-              div_ [class_ "article-meta"] $ do
-                a_ [href_ "profile.html"] $ img_ [src_ "http://i.imgur.com/Qr71crq.jpg"]
-                div_ [class_ "info"] $ do
-                  a_ [href_ "", class_ "author"] "Eric Simons"
-                  span_ [class_ "date"] "January 20th"
-                button_ [class_ "btn btn-outline-primary btn-sm pull-xs-right"] $ do
-                  i_ [class_ "ion-heart"] ""
-                  " 29\n                        "
-              a_ [href_ "", class_ "preview-link"] $ do
-                h1_ "How to build webapps that scale"
-                p_ "This is the description for the post."
-                span_ "Read more..."
-            div_ [class_ "article-preview"] $ do
-              div_ [class_ "article-meta"] $ do
-                a_ [href_ "profile.html"] $ img_ [src_ "http://i.imgur.com/N4VcUeJ.jpg"]
-                div_ [class_ "info"] $ do
-                  a_ [href_ "", class_ "author"] "Albert Pai"
-                  span_ [class_ "date"] "January 20th"
-                button_ [class_ "btn btn-outline-primary btn-sm pull-xs-right"] $ do
-                  i_ [class_ "ion-heart"] ""
-                  " 32\n                        "
-              a_ [href_ "", class_ "preview-link"] $ do
-                h1_ "The song you won't ever stop singing. No matter how hard you try."
-                p_ "This is the description for the post."
-                span_ "Read more..."
-          div_ [class_ "col-md-3"] $
-            div_ [class_ "sidebar"] $ do
-              p_ "Popular Tags"
-              div_ [class_ "tag-list"] $ do
-                a_ [href_ "", class_ "tag-pill tag-default"] "programming"
-                a_ [href_ "", class_ "tag-pill tag-default"] "javascript"
-                a_ [href_ "", class_ "tag-pill tag-default"] "emberjs"
-                a_ [href_ "", class_ "tag-pill tag-default"] "angularjs"
-                a_ [href_ "", class_ "tag-pill tag-default"] "react"
-                a_ [href_ "", class_ "tag-pill tag-default"] "mean"
-                a_ [href_ "", class_ "tag-pill tag-default"] "node"
-                a_ [href_ "", class_ "tag-pill tag-default"] "rails"
-  toHtml (LoggedInHome user) =
-    div_ [class_ "home-page"] $ do
-      div_ [class_ "container page"] $
-        div_ [class_ "row"] $ do
-          div_ [class_ "col-md-9"] $ do
-            div_ [class_ "feed-toggle"] $
-              ul_ [class_ "nav nav-pills outline-active"] $ do
-                li_ [class_ "nav-item"] $ a_ [class_ "nav-link active", href_ ""] "Your Feed"
-                li_ [class_ "nav-item"] $ a_ [class_ "nav-link disabled", href_ ""] "Global Feed"
-            div_ [class_ "article-preview"] $ do
-              div_ [class_ "article-meta"] $ do
-                a_ [href_ ""] $ img_ [src_ "http://i.imgur.com/Qr71crq.jpg"]
-                div_ [class_ "info"] $ do
-                  a_ [href_ "", class_ "author"] "Eric Simons"
-                  span_ [class_ "date"] "January 20th"
-                button_ [class_ "btn btn-outline-primary btn-sm pull-xs-right"] $ do
-                  i_ [class_ "ion-heart"] ""
-                  " 29\n                        "
-              a_ [href_ "", class_ "preview-link"] $ do
-                h1_ "How to build webapps that scale"
-                p_ "This is the description for the post."
-                span_ "Read more..."
-            div_ [class_ "article-preview"] $ do
-              div_ [class_ "article-meta"] $ do
-                a_ [href_ "profile.html"] $ img_ [src_ "http://i.imgur.com/N4VcUeJ.jpg"]
-                div_ [class_ "info"] $ do
-                  a_ [href_ "", class_ "author"] "Albert Pai"
-                  span_ [class_ "date"] "January 20th"
-                button_ [class_ "btn btn-outline-primary btn-sm pull-xs-right"] $ do
-                  i_ [class_ "ion-heart"] ""
-                  " 32\n                        "
-              a_ [href_ "", class_ "preview-link"] $ do
-                h1_ "The song you won't ever stop singing. No matter how hard you try."
-                p_ "This is the description for the post."
-                span_ "Read more..."
-          div_ [class_ "col-md-3"] $
-            div_ [class_ "sidebar"] $ do
-              p_ "Popular Tags"
-              div_ [class_ "tag-list"] $ do
-                a_ [href_ "", class_ "tag-pill tag-default"] "programming"
-                a_ [href_ "", class_ "tag-pill tag-default"] "javascript"
-                a_ [href_ "", class_ "tag-pill tag-default"] "emberjs"
-                a_ [href_ "", class_ "tag-pill tag-default"] "angularjs"
-                a_ [href_ "", class_ "tag-pill tag-default"] "react"
-                a_ [href_ "", class_ "tag-pill tag-default"] "mean"
-                a_ [href_ "", class_ "tag-pill tag-default"] "node"
-                a_ [href_ "", class_ "tag-pill tag-default"] "rails"
+instance ToHtml Feed where
+  toHtml (Feed pills articles) = do
+    div_ [class_ "feed-toggle"] $
+      ul_ [class_ "nav nav-pills outline-active"] $ do
+        forM_ pills $ \(name, link, isActive) -> do
+          li_ [class_ "nav-item"] $
+            a_ [class_ $ "nav-link " <> if isActive then "active" else "disabled", href_ link] $ toHtml name
+    -- ARTICLES START
+    forM_ articles $ \_ -> undefined
+
+  {-
+  div_ [class_ "article-preview"] $ do
+    div_ [class_ "article-meta"] $ do
+      a_ [href_ "profile.html"] $ img_ [src_ "http://i.imgur.com/Qr71crq.jpg"]
+      div_ [class_ "info"] $ do
+        a_ [href_ "", class_ "author"] "Eric Simons"
+        span_ [class_ "date"] "January 20th"
+      button_ [class_ "btn btn-outline-primary btn-sm pull-xs-right"] $ do
+        i_ [class_ "ion-heart"] ""
+        " 29\n                        "
+    a_ [href_ "", class_ "preview-link"] $ do
+      h1_ "How to build webapps that scale"
+      p_ "This is the description for the post."
+      span_ "Read more..."
+  div_ [class_ "article-preview"] $ do
+    div_ [class_ "article-meta"] $ do
+      a_ [href_ "profile.html"] $ img_ [src_ "http://i.imgur.com/N4VcUeJ.jpg"]
+      div_ [class_ "info"] $ do
+        a_ [href_ "", class_ "author"] "Albert Pai"
+        span_ [class_ "date"] "January 20th"
+      button_ [class_ "btn btn-outline-primary btn-sm pull-xs-right"] $ do
+        i_ [class_ "ion-heart"] ""
+        " 32\n                        "
+    a_ [href_ "", class_ "preview-link"] $ do
+      h1_ "The song you won't ever stop singing. No matter how hard you try."
+      p_ "This is the description for the post."
+      span_ "Read more..."
+    -}
+  -- ARTICLES END
   toHtmlRaw = toHtml
 
-data SignUpForm = SignUpForm Model.SignUpForm [Text]
+data Tagbar = Tagbar [(Text, Text)] -- name of tag and what it links too
+
+instance ToHtml Tagbar where
+  toHtml (Tagbar tags) =
+    div_ [class_ "sidebar"] $ do
+      p_ "Popular Tags"
+      div_ [class_ "tag-list"] $
+        forM_ tags $ \(name, link) ->
+          a_ [href_ link, class_ "tag-pill tag-default"] $ toHtml name
+  toHtmlRaw = toHtml
+
+data Home = Home (Maybe Model.User)
+
+instance ToHtml Home where
+  toHtml (Home mbUser) =
+    div_ [class_ "home-page"] $ do
+      case mbUser of
+        Nothing -> do
+          div_ [class_ "banner"] $
+            div_ [class_ "container"] $ do
+              h1_ [class_ "logo-font"] "conduit"
+              p_ "A place to share your knowledge."
+        Just _ -> ""
+      div_ [class_ "container page"] $
+        div_ [class_ "row"] $ do
+          -- FEED
+          div_ [id_ "feeds", class_ "col-md-9"] $
+            toHtml $ case mbUser of
+              Nothing -> Feed [("Global Feed", "", True)] []
+              Just _ ->
+                Feed
+                  [("Your Feed", "", True), ("Global Feed", "", False)]
+                  []
+
+          -- TAGS
+          div_ [id_ "tags", class_ "col-md-3"] $ toHtml $ Tagbar []
+  toHtmlRaw = toHtml
+
+data SignUpForm = SignUpForm (Maybe Model.SignUpForm) [Text]
 
 instance ToHtml SignUpForm where
-  toHtml (SignUpForm (Model.SignUpForm email password username) errors) =
+  toHtml (SignUpForm mbSignUpForm errors) =
     div_ [class_ "auth-page"] $
       div_ [class_ "container page"] $
         div_ [class_ "row"] $
@@ -258,20 +221,38 @@ instance ToHtml SignUpForm where
             case errors of
               [] -> ""
               errors' -> ul_ [class_ "error-messages"] $ mapM_ (li_ [] . toHtml) errors'
-            form_ [hxPost_ $ toUrl signUpFormSubmitLink, hxExt_ "json-enc", hxTarget_ "#content-slot"] $ do
+            form_ [hxPost_ $ toUrl signUpFormSubmitLink, hxTarget_ "#content-slot"] $ do
               fieldset_ [class_ "form-group"] $
-                input_ [class_ "form-control form-control-lg", type_ "text", name_ "signUpFormUsername", placeholder_ "Username", value_ username]
+                input_
+                  [ class_ "form-control form-control-lg",
+                    type_ "text",
+                    name_ "signUpFormUsername",
+                    placeholder_ "Username",
+                    value_ $ maybe "" Model.signUpFormUsername mbSignUpForm
+                  ]
               fieldset_ [class_ "form-group"] $
-                input_ [class_ "form-control form-control-lg", type_ "text", name_ "signUpFormEmail", placeholder_ "Email", value_ email]
+                input_
+                  [ class_ "form-control form-control-lg",
+                    type_ "text",
+                    name_ "signUpFormEmail",
+                    placeholder_ "Email",
+                    value_ $ maybe "" Model.signUpFormEmail mbSignUpForm
+                  ]
               fieldset_ [class_ "form-group"] $
-                input_ [class_ "form-control form-control-lg", type_ "password", name_ "signUpFormPassword", placeholder_ "Password", value_ password]
+                input_
+                  [ class_ "form-control form-control-lg",
+                    type_ "password",
+                    name_ "signUpFormPassword",
+                    placeholder_ "Password",
+                    value_ $ maybe "" Model.signUpFormPassword mbSignUpForm
+                  ]
               button_ [class_ "btn btn-lg btn-primary pull-xs-right"] "Sign up"
   toHtmlRaw = toHtml
 
-data SignInForm = SignInForm Model.SignInForm [Text]
+data SignInForm = SignInForm (Maybe Model.SignInForm) [Text]
 
 instance ToHtml SignInForm where
-  toHtml (SignInForm (Model.SignInForm email password) errors) =
+  toHtml (SignInForm mbSignInForm errors) =
     div_ [class_ "auth-page"] $
       div_ [class_ "container page"] $
         div_ [class_ "row"] $
@@ -281,27 +262,42 @@ instance ToHtml SignInForm where
             case errors of
               [] -> ""
               errors' -> ul_ [class_ "error-messages"] $ mapM_ (li_ [] . toHtml) errors'
-            form_ [hxPost_ $ toUrl signInFormSubmitLink, hxExt_ "json-enc", hxTarget_ "#content-slot"] $ do
-              fieldset_ [class_ "form-group"] $ input_ [class_ "form-control form-control-lg", type_ "text", name_ "signInFormEmail", placeholder_ "Email", value_ email]
-              fieldset_ [class_ "form-group"] $ input_ [class_ "form-control form-control-lg", type_ "password", name_ "signInFormPassword", placeholder_ "Password", value_ password]
+            form_ [hxPost_ $ toUrl signInFormSubmitLink, hxTarget_ "#content-slot"] $ do
+              fieldset_ [class_ "form-group"] $
+                input_
+                  [ class_ "form-control form-control-lg",
+                    type_ "text",
+                    name_ "signInFormEmail",
+                    placeholder_ "Email",
+                    value_ $ maybe "" Model.signInFormEmail mbSignInForm
+                  ]
+              fieldset_ [class_ "form-group"] $
+                input_
+                  [ class_ "form-control form-control-lg",
+                    type_ "password",
+                    name_ "signInFormPassword",
+                    placeholder_ "Password",
+                    value_ $ maybe "" Model.signInFormPassword mbSignInForm
+                  ]
               button_ [class_ "btn btn-lg btn-primary pull-xs-right"] "Sign in"
   toHtmlRaw = toHtml
 
+-- Depend on if authed or not.....
 data Profile = Profile Model.User
 
 instance ToHtml Profile where
-  toHtml (Profile _) =
+  toHtml (Profile (Model.User bio email imageUrl username)) =
     div_ [class_ "profile-page"] $ do
       div_ [class_ "user-info"] $
         div_ [class_ "container"] $
           div_ [class_ "row"] $
             div_ [class_ "col-xs-12 col-md-10 offset-md-1"] $ do
-              img_ [src_ "http://i.imgur.com/Qr71crq.jpg", class_ "user-img"]
-              h4_ "Eric Simons"
-              p_ "\n                        Cofounder @GoThinkster, lived in Aol's HQ for a few months, kinda looks like Peeta from the\n                        Hunger Games\n                    "
+              img_ [src_ imageUrl, class_ "user-img"]
+              h4_ $ toHtml username
+              p_ $ toHtml bio
               button_ [class_ "btn btn-sm btn-outline-secondary action-btn"] $ do
                 i_ [class_ "ion-plus-round"] ""
-                "\n                        \160\n                        Follow Eric Simons\n                    "
+                "Follow " <> toHtml username
       div_ [class_ "container"] $
         div_ [class_ "row"] $
           div_ [class_ "col-xs-12 col-md-10 offset-md-1"] $ do
@@ -340,10 +336,10 @@ instance ToHtml Profile where
                   li_ [class_ "tag-default tag-pill tag-outline"] "Song"
   toHtmlRaw = toHtml
 
-data Settings = Settings
+data Settings = Settings Model.User
 
 instance ToHtml Settings where
-  toHtml Settings =
+  toHtml (Settings (Model.User bio email imageUrl username)) =
     div_ [class_ "settings-page"] $
       div_ [class_ "container page"] $
         div_ [class_ "row"] $
@@ -351,12 +347,41 @@ instance ToHtml Settings where
             h1_ [class_ "text-xs-center"] "Your Settings"
             form_ $
               fieldset_ $ do
-                fieldset_ [class_ "form-group"] $ input_ [class_ "form-control", type_ "text", placeholder_ "URL of profile picture"]
-                fieldset_ [class_ "form-group"] $ input_ [class_ "form-control form-control-lg", type_ "text", placeholder_ "Your Name"]
-                fieldset_ [class_ "form-group"] $ textarea_ [class_ "form-control form-control-lg", rows_ "8", placeholder_ "Short bio about you"] ""
-                fieldset_ [class_ "form-group"] $ input_ [class_ "form-control form-control-lg", type_ "text", placeholder_ "Email"]
-                fieldset_ [class_ "form-group"] $ input_ [class_ "form-control form-control-lg", type_ "password", placeholder_ "Password"]
-                button_ [class_ "btn btn-lg btn-primary pull-xs-right"] "\n                            Update Settings\n                        "
+                fieldset_ [class_ "form-group"] $
+                  input_
+                    [ class_ "form-control",
+                      type_ "text",
+                      placeholder_ "URL of profile picture",
+                      value_ imageUrl
+                    ]
+                fieldset_ [class_ "form-group"] $
+                  input_
+                    [ class_ "form-control form-control-lg",
+                      type_ "text",
+                      placeholder_ "Your Name",
+                      value_ username
+                    ]
+                fieldset_ [class_ "form-group"] $
+                  textarea_
+                    [ class_ "form-control form-control-lg",
+                      rows_ "8",
+                      placeholder_ "Short bio about you"
+                    ]
+                    $ toHtml bio
+                fieldset_ [class_ "form-group"] $
+                  input_
+                    [ class_ "form-control form-control-lg",
+                      type_ "text",
+                      placeholder_ "Email",
+                      value_ email
+                    ]
+                fieldset_ [class_ "form-group"] $
+                  input_
+                    [ class_ "form-control form-control-lg",
+                      type_ "password",
+                      placeholder_ "New Password"
+                    ]
+                button_ [class_ "btn btn-lg btn-primary pull-xs-right"] "Update Settings"
   toHtmlRaw = toHtml
 
 data Editor = Editor
@@ -375,7 +400,7 @@ instance ToHtml Editor where
                 fieldset_ [class_ "form-group"] $ do
                   input_ [type_ "text", class_ "form-control", placeholder_ "Enter tags"]
                   div_ [class_ "tag-list"] ""
-                button_ [class_ "btn btn-lg pull-xs-right btn-primary", type_ "button"] "\n                            Publish Article\n                        "
+                button_ [class_ "btn btn-lg pull-xs-right btn-primary", type_ "button"] "Publish Article"
   toHtmlRaw = toHtml
 
 data Article = Article
@@ -448,10 +473,10 @@ data SignUpResponse
   | SignUpSuccess Model.User
 
 instance ToHtml SignUpResponse where
-  toHtml (SignUpFailure signUpForm errors) = toHtml $ SignUpForm signUpForm errors
+  toHtml (SignUpFailure signUpForm errors) = toHtml $ SignUpForm (Just signUpForm) errors
   toHtml (SignUpSuccess user) = do
-    toHtml $ LoggedInHome user
-    toHtml $ LoggedInNavbar True user
+    toHtml $ Home $ Just user
+    toHtml $ Navbar (Just user) True
   toHtmlRaw = toHtml
 
 data SignInResponse
@@ -459,17 +484,16 @@ data SignInResponse
   | SignInSuccess Model.User
 
 instance ToHtml SignInResponse where
-  toHtml (SignInFailure signInForm errors) = toHtml $ SignInForm signInForm errors
+  toHtml (SignInFailure signInForm errors) = toHtml $ SignInForm (Just signInForm) errors
   toHtml (SignInSuccess user) = do
-    toHtml $ LoggedInHome user
-    toHtml $ LoggedInNavbar True user
+    toHtml $ Home $ Just user
+    toHtml $ Navbar (Just user) True
   toHtmlRaw = toHtml
 
 -- VIEWS END --
 
 -- ROUTES START --
-
-type HomeRoute = HXRequest :> Get '[HTML] (Partial Home)
+-- TODO: Factor out HXRequest
 
 type SignUpFormRoute = "register" :> HXRequest :> Get '[HTML] (Partial SignUpForm)
 
@@ -477,22 +501,31 @@ type SignInFormRoute = "login" :> HXRequest :> Get '[HTML] (Partial SignInForm)
 
 type SignUpFormSubmitRoute =
   "sign-up"
-    :> ReqBody '[JSON] Model.SignUpForm
+    :> ReqBody '[FormUrlEncoded] Model.SignUpForm
     :> Post '[HTML] (Headers '[HXPush, Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] SignUpResponse)
 
 type SignInFormSubmitRoute =
   "sign-in"
-    :> ReqBody '[JSON] Model.SignInForm
+    :> ReqBody '[FormUrlEncoded] Model.SignInForm
     :> Post '[HTML] (Headers '[HXPush, Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] SignInResponse)
 
 type UnprotectedRoutes =
-  HomeRoute
-    :<|> SignUpFormRoute
+  SignUpFormRoute
     :<|> SignInFormRoute
     :<|> SignUpFormSubmitRoute
     :<|> SignInFormSubmitRoute
 
-type ProtectedRoutes = HomeRoute
+-- TODO: REMOVE PARTIALS WHERE POSSIBLE
+
+type HomeRoute = HXRequest :> Get '[HTML] (Partial Home)
+
+-- type ProfileRoute = Capture "username" Text :> HXRequest :> Get '[HTML] (Partial Profile)
+
+type EditorRoute = "editor" :> HXRequest :> Get '[HTML] (Partial Editor)
+
+type SettingsRoute = "settings" :> HXRequest :> Get '[HTML] (Partial Settings)
+
+type ProtectedRoutes = HomeRoute {- :<|> ProfileRoute -} :<|> EditorRoute :<|> SettingsRoute
 
 type Routes =
   (Auth '[Cookie] Model.User :> ProtectedRoutes)
@@ -512,14 +545,28 @@ getLink ::
   MkLink endpoint Link
 getLink = safeLink $ proxy @Routes
 
-homeLink = getLink $ proxy @HomeRoute
+-- homeLink :: Link
+-- homeLink = getLink $ proxy @HomeRoute
 
+signInFormLink :: Link
 signInFormLink = getLink $ proxy @SignInFormRoute
 
+signInFormSubmitLink :: Link
 signInFormSubmitLink = getLink $ proxy @SignInFormSubmitRoute
 
+signUpFormLink :: Link
 signUpFormLink = getLink $ proxy @SignUpFormRoute
 
+signUpFormSubmitLink :: Link
 signUpFormSubmitLink = getLink $ proxy @SignUpFormSubmitRoute
+
+homeLink :: Link
+homeLink = getLink $ proxy @(Auth '[Cookie] Model.User :> HomeRoute)
+
+editorLink :: Link
+editorLink = getLink $ proxy @(Auth '[Cookie] Model.User :> EditorRoute)
+
+settingsLink :: Link
+settingsLink = getLink $ proxy @(Auth '[Cookie] Model.User :> SettingsRoute)
 
 -- LINKS END --
