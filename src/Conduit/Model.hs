@@ -41,7 +41,7 @@ newtype Tag = Tag
   }
   deriving (Eq, Show)
 
-newtype Comment = Comment
+data Comment = Comment
   { commentArticleID :: ID Article,
     commentAuthorID :: ID User,
     commentBody :: Text,
@@ -50,7 +50,7 @@ newtype Comment = Comment
   }
   deriving (Eq, Show)
 
-data Follow = Text :-> Text
+data Follow = (ID User) :-> (ID User)
 
 -- CORE MODELS END --
 
@@ -105,7 +105,6 @@ data NewEditorForm = NewEditorForm
 
 data UpdateEditorForm = UpdateEditorForm
   { updateEditorFormArticleID :: ID Article,
-    updateEditorFormAuthorID :: ID User,
     updateEditorFormBody :: Text,
     updateEditorFormDescription :: Text,
     updateEditorFormTags :: Text,
@@ -114,8 +113,9 @@ data UpdateEditorForm = UpdateEditorForm
   deriving (Eq, Show)
 
 data CommentForm = CommentForm
-  { commentAuthorID :: ID User,
-    commentBody :: Text
+  { commentFormArticleID :: ID Article,
+    commentFormAuthorID :: ID User,
+    commentFormBody :: Text
   }
   deriving (Eq, Show)
 
