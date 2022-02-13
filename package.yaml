@@ -39,6 +39,7 @@ dependencies:
 - text
 - time
 - transformers
+- vector
 - warp
 
 library:

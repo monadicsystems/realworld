@@ -5,34 +5,34 @@
 module Conduit.Model where
 
 import Data.Aeson
+import Data.Int (Int32)
 import Data.Text
 import Data.Time
 import GHC.Generics
 import Servant.Auth.JWT (FromJWT, ToJWT)
 import Web.FormUrlEncoded (FromForm)
 
-newtype ID a = ID {unID :: Int} deriving (Eq, Show)
+newtype ID a = ID {unID :: Int32} deriving (Eq, Show, Generic, FromJSON, ToJSON)
 
-data WithMeta a = WithMeta
-  { withMetaCreatedAt :: Maybe UTCTime,
-    withMetaData :: a,
-    withMetaID :: ID a,
-    withMetaUpdatedAt :: Maybe UTCTime
-  }
-  deriving (Eq, Show)
+-- CORE MODELS START --
 
 data User = User
   { userBio :: Text,
     userEmail :: Text,
+    userID :: ID User,
     userImageUrl :: Text,
     userUsername :: Text
   }
   deriving (Eq, Show, Generic, FromJSON, FromJWT, ToJSON, ToJWT)
 
 data Article = Article
-  { articleBody :: Text,
+  { articleAuthorID :: ID User,
+    articleBody :: Text,
+    articleCreatedAt :: UTCTime,
     articleDescription :: Text,
-    articleFavoritesCount :: Int
+    articleFavorites :: Int,
+    articleID :: ID Article,
+    articleTitle :: Text
   }
   deriving (Eq, Show)
 
@@ -42,9 +42,19 @@ newtype Tag = Tag
   deriving (Eq, Show)
 
 newtype Comment = Comment
-  { unComment :: Text
+  { commentArticleID :: ID Article,
+    commentAuthorID :: ID User,
+    commentBody :: Text,
+    commentCreatedAt :: UTCTime,
+    commentID :: ID Comment
   }
   deriving (Eq, Show)
+
+data Follow = Text :-> Text
+
+-- CORE MODELS END --
+
+-- FORM MODELS START --
 
 data SignInForm = SignInForm
   { signInFormEmail :: Text,
@@ -74,7 +84,40 @@ instance ToJSON SignUpForm where
         "username" .= username
       ]
 
-data Follow = Text :-> Text
+data SettingsForm = SettingsForm
+  { settingsFormBio :: Text,
+    settingsFormEmail :: Text,
+    settingsFormImageUrl :: Text,
+    settingsFormNewPassword :: Text,
+    settingsFormUserID :: ID User,
+    settingsFormUsername :: Text
+  }
+  deriving (Eq, Show, Generic, FromJSON, ToJSON)
+
+data NewEditorForm = NewEditorForm
+  { newEditorFormAuthorID :: ID User,
+    newEditorFormBody :: Text,
+    newEditorFormDescription :: Text,
+    newEditorFormTags :: Text,
+    newEditorFormTitle :: Text
+  }
+  deriving (Eq, Show)
+
+data UpdateEditorForm = UpdateEditorForm
+  { updateEditorFormArticleID :: ID Article,
+    updateEditorFormAuthorID :: ID User,
+    updateEditorFormBody :: Text,
+    updateEditorFormDescription :: Text,
+    updateEditorFormTags :: Text,
+    updateEditorFormTitle :: Text
+  }
+  deriving (Eq, Show)
+
+data CommentForm = CommentForm
+  { commentAuthorID :: ID User,
+    commentBody :: Text
+  }
+  deriving (Eq, Show)
 
 newtype FollowForm = FollowForm
   { followFormTarget :: Text
@@ -86,28 +129,4 @@ newtype UnfollowForm = UnfollowForm
   }
   deriving (FromForm, Generic, Show)
 
--- blankSignUpForm = SignUpForm "" "" ""
-
--- blankSignInForm = SignInForm "" ""
-
-{-
-{
-  "article": {
-    "slug": "how-to-train-your-dragon",
-    "title": "How to train your dragon",
-    "description": "Ever wonder how?",
-    "body": "It takes a Jacobian",
-    "tagList": ["dragons", "training"],
-    "createdAt": "2016-02-18T03:22:56.637Z",
-    "updatedAt": "2016-02-18T03:48:35.824Z",
-    "favorited": false,
-    "favoritesCount": 0,
-    "author": {
-      "username": "jake",
-      "bio": "I work at statefarm",
-      "image": "https://i.stack.imgur.com/xHWG8.jpg",
-      "following": false
-    }
-  }
-}
--}
+-- FORM MODELS END --
