@@ -30,7 +30,7 @@ data Article = Article
     articleBody :: Text,
     articleCreatedAt :: UTCTime,
     articleDescription :: Text,
-    articleFavorites :: Int,
+    articleFavorites :: Int32,
     articleID :: ID Article,
     articleTitle :: Text
   }

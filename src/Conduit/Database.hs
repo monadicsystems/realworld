@@ -1,20 +1,25 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Conduit.Database where
 
--- from "hasql-th"
-
+import Conduit.App
 import Conduit.Model
 import Conduit.Model (SignUpForm (SignUpForm))
+import Control.Monad.IO.Class (liftIO)
+import Data.Bifunctor (bimap)
+import Data.Function ((&))
 import Data.Int
-import qualified Data.Sequence.Internal.Sorting as Text
+-- import qualified Data.Sequence.Internal.Sorting as Text
+import Data.Profunctor (dimap)
 import Data.Text
 import Data.Time
 import Data.Vector (Vector)
 import Data.Vector as Vector
-import Hasql.Session (Session)
+import Hasql.Connection (Connection)
+import Hasql.Session (Session, QueryError)
 import qualified Hasql.Session as Session
 import Hasql.Statement (Statement)
 import qualified Hasql.Statement as Statement
@@ -36,8 +41,8 @@ tupleToUser (pk, username, email, imageUrl, bio) =
 settingsFormToTuple :: SettingsForm -> (Int32, Text, Text, Text, Text, Text)
 settingsFormToTuple SettingsForm {..} =
   ( unID settingsFormUserID,
-    settingsFormUserUsername,
-    settingsFormUserEmail,
+    settingsFormUsername,
+    settingsFormEmail,
     settingsFormImageUrl,
     settingsFormBio,
     settingsFormNewPassword
@@ -76,7 +81,7 @@ insertUser =
     tupleToUser
     [TH.singletonStatement|
       insert into users (username, email, hash)
-      values ($1 :: text, $2 :: text, crypt($4 :: text, gen_salt('bf')))
+      values ($1 :: text, $2 :: text, crypt($3 :: text, gen_salt('bf')))
       returning pk_user :: int4, username :: text, email :: text, imageUrl :: text, bio :: text
     |]
 
@@ -98,6 +103,22 @@ updateUser =
           end
       where pk_user = $1 :: int4
       returning pk_user :: int4, username :: text, email :: text, imageUrl :: text, bio :: text
+    |]
+
+verifyUser :: Statement SignInForm User
+verifyUser =
+  dimap
+    signInFormPassword
+    tupleToUser
+    [TH.singletonStatement|
+      select
+        pk_user :: int4,
+        username :: text,
+        email :: text,
+        imageUrl :: text,
+        bio :: text
+      from users
+      where hash = crypt($1 :: text, hash)
     |]
 
 -- USERS END --
@@ -146,8 +167,8 @@ insertArticle =
     newEditorFormToTuple
     tupleToArticle
     [TH.singletonStatement|
-      insert into articles (title, description, body)
-      values ($1 :: text, $2 :: text, $3 :: text)
+      insert into articles (fk_user, title, description, body)
+      values ($1 :: int4, $2 :: text, $3 :: text, $4 :: text)
       returning pk_article :: int4, fk_user :: int4, title :: text, description :: text, body :: text, favorites :: int4, created_at :: timestamptz
     |]
 
@@ -158,13 +179,13 @@ updateEditorFormToTuple UpdateEditorForm {..} =
 updateArticle :: Statement UpdateEditorForm Article
 updateArticle =
   dimap
-    editorFormToTuple
+    updateEditorFormToTuple
     tupleToArticle
     [TH.singletonStatement|
         update articles
         set title = $2 :: Text,
             description = $3 :: Text,
-            body = $4 :: Text,
+            body = $4 :: Text
         where pk_article = $1 :: int4
         returning pk_article :: int4, fk_user :: int4, title :: text, description :: text, body :: text, favorites :: int4, created_at :: timestamptz
     |]
@@ -174,7 +195,7 @@ deleteArticle =
   dimap
     unID
     id
-    [TH.rowsAffectedStatment|
+    [TH.rowsAffectedStatement|
       delete from articles where pk_article = $1 :: int4
     |]
 
@@ -230,7 +251,7 @@ deleteComment =
   dimap
     unID
     id
-    [TH.rowsAffectedStatment|
+    [TH.rowsAffectedStatement|
       delete from comments where pk_comment = $1 :: int4
     |]
 
@@ -255,7 +276,7 @@ createTagsTable =
 insertTags :: Statement Text ()
 insertTags =
   dimap
-    (split (',' ==) & map strip & fromList)
+    (fromList . Prelude.map strip . split (',' ==))
     id
     [TH.resultlessStatement|
       insert into tags (pk_tag)
@@ -285,10 +306,10 @@ createArticlesTagsTable =
 tupleToArticleTagsVectors :: (ID Article, Text) -> (Vector Int32, Vector Text)
 tupleToArticleTagsVectors (ID articleID, commaSepTags) =
   [ (articleID, tag)
-    | tag <- map strip $ split (',' ==) commaSepTags
+    | tag <- Prelude.map strip $ split (',' ==) commaSepTags
   ]
-    & unzip
-    & dimap fromList fromList
+    & Prelude.unzip
+    & bimap fromList fromList
 
 insertArticleTags :: Statement (ID Article, Text) ()
 insertArticleTags =
@@ -321,7 +342,7 @@ createFollowsTable =
     |]
 
 followToTuple :: Follow -> (Int32, Int32)
-followToTuple (ID followerID, ID followeeID) =
+followToTuple ((ID followerID) :-> (ID followeeID)) =
   (followerID, followeeID) 
 
 tupleToFollow :: (Int32, Int32) -> Follow
@@ -332,11 +353,21 @@ insertArticlesTags =
   dimap
     followToTuple
     tupleToFollow
-    [TH.resultlessStatement|
+    [TH.singletonStatement|
       insert into follows (fk_follower, fk_followee)
       values ($1 :: int4, $2 :: int4)
       returning fk_follower :: int4, fk_followee :: int4
     |]
+
+runStatement :: forall i o. Statement i o -> i -> App (Either QueryError o)
+runStatement statement input = do
+  conn <- grab @Connection
+  liftIO $ Session.run (Session.statement input statement) conn
+
+runUncheckedSql :: Session () -> App (Either QueryError ())
+runUncheckedSql session = do
+  conn <- grab @Connection
+  liftIO $ Session.run session conn
 
 -- FOLLOWS END --
 

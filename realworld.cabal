@@ -26,6 +26,7 @@ source-repository head
 library
   exposed-modules:
       Conduit
+      Conduit.App
       Conduit.Database
       Conduit.Model
       Conduit.Resource
@@ -46,6 +47,8 @@ library
     , lucid
     , lucid-htmx
     , lucid-hyperscript
+    , mtl
+    , profunctors
     , servant
     , servant-auth
     , servant-auth-server
@@ -77,6 +80,8 @@ executable realworld-exe
     , lucid
     , lucid-htmx
     , lucid-hyperscript
+    , mtl
+    , profunctors
     , realworld
     , servant
     , servant-auth
@@ -110,6 +115,8 @@ test-suite realworld-test
     , lucid
     , lucid-htmx
     , lucid-hyperscript
+    , mtl
+    , profunctors
     , realworld
     , servant
     , servant-auth

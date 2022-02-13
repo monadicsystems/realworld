@@ -30,6 +30,8 @@ dependencies:
 - lucid
 - lucid-htmx
 - lucid-hyperscript
+- mtl
+- profunctors
 - servant
 - servant-auth
 - servant-auth-server

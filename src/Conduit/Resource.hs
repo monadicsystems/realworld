@@ -57,7 +57,7 @@ instance ToHtml Navbar where
             Nothing -> do
               li_ [class_ "nav-item"] $ a_ [class_ "nav-link", hxGetSafe_ signInFormLink, href_ $ toUrl signInFormLink] "Sign in"
               li_ [class_ "nav-item"] $ a_ [class_ "nav-link", hxGetSafe_ signUpFormLink, href_ $ toUrl signUpFormLink] "Sign up"
-            Just (Model.User bio email imageUrl username) -> do
+            Just (Model.User bio email _ imageUrl username) -> do
               li_ [class_ "nav-item"] $
                 a_
                   [ class_ "nav-link",
@@ -305,7 +305,7 @@ instance ToHtml Profile where
         profileTemplate otherUser $ if following then toHtml $ UnfollowButton $ Model.userUsername otherUser else toHtml $ FollowButton $ Model.userUsername otherUser
     where
       profileTemplate :: Monad m => Model.User -> HtmlT m () -> HtmlT m ()
-      profileTemplate (Model.User bio email imageUrl username) action =
+      profileTemplate (Model.User bio email _ imageUrl username) action =
         div_ [class_ "profile-page"] $ do
           div_ [class_ "user-info"] $
             div_ [class_ "container"] $
@@ -356,7 +356,7 @@ instance ToHtml Profile where
 data Settings = Settings Model.User
 
 instance ToHtml Settings where
-  toHtml (Settings (Model.User bio email imageUrl username)) =
+  toHtml (Settings (Model.User bio email userID imageUrl username)) =
     div_ [class_ "settings-page"] $
       div_ [class_ "container page"] $
         div_ [class_ "row"] $

@@ -5,6 +5,7 @@
 
 module Conduit.Server where
 
+import Conduit.App
 import Conduit.Database
 import qualified Conduit.Model as Model
 import Conduit.Resource as Resource
@@ -20,13 +21,16 @@ import Data.Text
 import Data.Text.Encoding (encodeUtf8)
 import Lucid
 import Network.Wai.Handler.Warp (run)
-import Servant
+import Servant hiding (Server)
 import Servant.API
 import Servant.Auth
 import Servant.Auth.Server
 import Servant.Htmx
-import Servant.Server
+import Servant.Server hiding (Server)
 import Web.Forma (FormResult (..), runForm, showFieldName)
+
+
+type Server api = ServerT api App
 
 unprotectedServer :: CookieSettings -> JWTSettings -> Server UnprotectedRoutes
 unprotectedServer cookieSettings jwtSettings =
@@ -40,12 +44,12 @@ unprotectedServer cookieSettings jwtSettings =
     --   Just "true" -> Resource.NotWrapped $ Resource.Home Nothing
     --   _ -> Resource.Wrapped Nothing $ Resource.Home Nothing
 
-    signUpFormHandler :: Maybe Text -> Handler (Resource.Partial Resource.SignUpForm)
+    signUpFormHandler :: Maybe Text -> App (Resource.Partial Resource.SignUpForm)
     signUpFormHandler hxReq = pure $ case hxReq of
       Just "true" -> Resource.NotWrapped $ Resource.SignUpForm Nothing []
       _ -> Resource.Wrapped Nothing $ Resource.SignUpForm Nothing []
 
-    signInFormHandler :: Maybe Text -> Handler (Resource.Partial Resource.SignInForm)
+    signInFormHandler :: Maybe Text -> App (Resource.Partial Resource.SignInForm)
     signInFormHandler hxReq = pure $ case hxReq of
       Just "true" -> Resource.NotWrapped $ Resource.SignInForm Nothing []
       _ -> Resource.Wrapped Nothing $ Resource.SignInForm Nothing []
@@ -54,7 +58,7 @@ unprotectedServer cookieSettings jwtSettings =
       CookieSettings ->
       JWTSettings ->
       Model.SignUpForm ->
-      Handler (Headers '[HXPush, Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] Resource.SignUpResponse)
+      App (Headers '[HXPush, Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] Resource.SignUpResponse)
     authorizeSignUp
       cookieSettings
       jwtSettings
@@ -79,24 +83,26 @@ unprotectedServer cookieSettings jwtSettings =
               & noHeader
               & noHeader
               & pure
-          Succeeded (Model.SignUpForm email password username) -> do
+          Succeeded signUpForm -> do
             -- If valid form, write user to DB and return creds
             -- TODO: Write user info to DB and getCreds
-            let user = Model.User "" email "https://api.realworld.io/images/smiley-cyrus.jpeg" username -- userCreds
-            mApplyCookies <- liftIO $ acceptLogin cookieSettings jwtSettings user
-            liftIO $ print email
-            case mApplyCookies of
-              Nothing -> throwError err401
-              Just applyCookies ->
-                applyCookies (Resource.SignUpSuccess user)
-                  & addHeader (toUrl homeLink)
-                  & pure
+            queryResult <- runStatement insertUser signUpForm
+            case queryResult of
+              Left _ -> undefined
+              Right user -> do
+                mApplyCookies <- liftIO $ acceptLogin cookieSettings jwtSettings user
+                case mApplyCookies of
+                  Nothing -> throwError err401
+                  Just applyCookies ->
+                    applyCookies (Resource.SignUpSuccess user)
+                      & addHeader (toUrl homeLink)
+                      & pure
 
     authorizeSignIn ::
       CookieSettings ->
       JWTSettings ->
       Model.SignInForm ->
-      Handler (Headers '[HXPush, Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] Resource.SignInResponse)
+      App (Headers '[HXPush, Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] Resource.SignInResponse)
     authorizeSignIn
       cookieSettings
       jwtSettings
@@ -121,18 +127,20 @@ unprotectedServer cookieSettings jwtSettings =
               & noHeader
               & noHeader
               & pure
-          Succeeded (Model.SignInForm email password) -> do
+          Succeeded signInForm -> do
             -- If valid form, fetch user from DB and return creds
             -- TODO: Fetch user info from DB and getCreds
-            let user = Model.User "" email "https://api.realworld.io/images/smiley-cyrus.jpeg" "rashad" -- userCreds
-            mApplyCookies <- liftIO $ acceptLogin cookieSettings jwtSettings user
-            liftIO $ print email
-            case mApplyCookies of
-              Nothing -> throwError err401
-              Just applyCookies ->
-                applyCookies (Resource.SignInSuccess user)
-                  & addHeader (toUrl homeLink)
-                  & pure
+            queryResult <- runStatement verifyUser signInForm
+            case queryResult of
+              Left _ -> undefined
+              Right user -> do
+                mApplyCookies <- liftIO $ acceptLogin cookieSettings jwtSettings user
+                case mApplyCookies of
+                  Nothing -> throwError err401
+                  Just applyCookies ->
+                    applyCookies (Resource.SignInSuccess user)
+                      & addHeader (toUrl homeLink)
+                      & pure
 
 protectedServer :: AuthResult Model.User -> Server ProtectedRoutes
 protectedServer (Authenticated user) = authHandler user -- if authenticated go to authed routes
@@ -147,28 +155,28 @@ authHandler user =
     :<|> editorHandler
     :<|> settingsHandler
   where
-    homeHandler :: Maybe Text -> Handler (Partial Home)
+    homeHandler :: Maybe Text -> App (Partial Home)
     homeHandler hxReq =
       case hxReq of
         Just "true" -> pure $ View.NotWrapped $ View.Home (Just user)
         _ -> pure $ View.Wrapped (Just user) $ View.Home (Just user)
 
-    followHandler :: Model.FollowForm -> Handler UnfollowButton
+    followHandler :: Model.FollowForm -> App UnfollowButton
     followHandler = undefined
 
-    unfollowHandler :: Model.UnfollowForm -> Handler FollowButton
+    unfollowHandler :: Model.UnfollowForm -> App FollowButton
     unfollowHandler = undefined
 
-    profileHandler :: Maybe Text -> Text -> Handler (Partial Profile)
+    profileHandler :: Maybe Text -> Text -> App (Partial Profile)
     profileHandler hxReq mbUsername = undefined
 
-    editorHandler :: Maybe Text -> Handler (Partial Editor)
+    editorHandler :: Maybe Text -> App (Partial Editor)
     editorHandler hxReq =
       case hxReq of
         Just "true" -> pure $ View.NotWrapped View.Editor
         _ -> pure $ View.Wrapped (Just user) View.Editor
 
-    settingsHandler :: Maybe Text -> Handler (Partial Settings)
+    settingsHandler :: Maybe Text -> App (Partial Settings)
     settingsHandler hxReq =
       case hxReq of
         Just "true" -> pure $ View.NotWrapped $ View.Settings user
@@ -183,15 +191,15 @@ noAuthHandler =
     :<|> (\_ -> redirectFor @(Partial Editor))
     :<|> (\_ -> redirectFor @(Partial Settings))
   where
-    homeHandler :: Maybe Text -> Handler (Partial Home)
+    homeHandler :: Maybe Text -> App (Partial Home)
     homeHandler hxReq = case hxReq of
       Just "true" -> pure $ View.NotWrapped $ View.Home Nothing
       _ -> pure $ View.Wrapped Nothing $ View.Home Nothing
 
-    profileHandler :: Maybe Text -> Text -> Handler (Partial Profile)
+    profileHandler :: Maybe Text -> Text -> App (Partial Profile)
     profileHandler = undefined
 
-    redirectFor :: forall a. ToHtml a => Handler a
+    redirectFor :: forall a. ToHtml a => App a
     redirectFor = throwError $ err303 {errHeaders = [("Location", encodeUtf8 $ toUrl signUpFormLink)]}
 
 server :: CookieSettings -> JWTSettings -> Server Routes
@@ -210,4 +218,5 @@ runApp :: Int -> IO ()
 runApp port = do
   jwtConfig <- getJwtConfig
   let api = Proxy :: Proxy Routes
-  run port $ serveWithContext api (context cookieConfig jwtConfig) (server cookieConfig jwtConfig)
+      -- context' = Proxy :: Context '[CookieSettings, JWTSettings] -- (context cookieConfig jwtConfig)
+  run port undefined -- $ serverWithContextT api $ hoistServerWithContext api context' runAppAsHandler (server cookieConfig jwtConfig)
