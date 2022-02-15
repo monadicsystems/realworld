@@ -13,6 +13,7 @@ import qualified Conduit.Resource as View
 import Conduit.Validate (signUpForm)
 import Conduit.Validate as Validate
 import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Reader
 import Data.Aeson
 import Data.Function ((&))
 import Data.Map.Strict (toList)
@@ -142,11 +143,11 @@ unprotectedServer cookieSettings jwtSettings =
                       & addHeader (toUrl homeLink)
                       & pure
 
-protectedServer :: AuthResult Model.User -> Server ProtectedRoutes
+protectedServer :: AuthResult Model.User -> ServerT ProtectedRoutes App
 protectedServer (Authenticated user) = authHandler user -- if authenticated go to authed routes
 protectedServer _ = noAuthHandler -- if not auth is there then redirect accordingly
 
-authHandler :: Model.User -> Server ProtectedRoutes
+authHandler :: Model.User -> ServerT ProtectedRoutes App
 authHandler user =
   homeHandler
     :<|> profileHandler
@@ -216,7 +217,15 @@ getJwtConfig = defaultJWTSettings <$> generateKey
 
 runApp :: Int -> IO ()
 runApp port = do
+  let
+    api = Proxy :: Proxy Routes
+    nt :: Config -> App a -> Handler a
+    nt c x = liftIO (runReaderT (unApp x) c)
+
   jwtConfig <- getJwtConfig
-  let api = Proxy :: Proxy Routes
-      -- context' = Proxy :: Context '[CookieSettings, JWTSettings] -- (context cookieConfig jwtConfig)
-  run port undefined -- $ serverWithContextT api $ hoistServerWithContext api context' runAppAsHandler (server cookieConfig jwtConfig)
+  config <- undefined
+
+  let
+    app :: Config -> Application
+    app c = serveWithContextT api (context cookieConfig jwtConfig) (nt c) server
+  run port $ app config

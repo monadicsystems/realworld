@@ -37,7 +37,7 @@ dependencies:
 - servant-auth-server
 - servant-htmx
 - servant-lucid
-- servant-server
+- servant-server >= 0.19
 - text
 - time
 - transformers
