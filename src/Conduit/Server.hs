@@ -30,7 +30,6 @@ import Servant.Htmx
 import Servant.Server hiding (Server)
 import Web.Forma (FormResult (..), runForm, showFieldName)
 
-
 type Server api = ServerT api App
 
 unprotectedServer :: CookieSettings -> JWTSettings -> Server UnprotectedRoutes
@@ -217,15 +216,15 @@ getJwtConfig = defaultJWTSettings <$> generateKey
 
 runApp :: Int -> IO ()
 runApp port = do
-  let
-    api = Proxy :: Proxy Routes
-    nt :: Config -> App a -> Handler a
-    nt c x = liftIO (runReaderT (unApp x) c)
+  let api = Proxy :: Proxy Routes
+      runAppAsHandler :: Config -> App a -> Handler a
+      runAppAsHandler c x = liftIO (runReaderT (unApp x) c)
 
   jwtConfig <- getJwtConfig
   config <- undefined
 
-  let
-    app :: Config -> Application
-    app c = serveWithContextT api (context cookieConfig jwtConfig) (nt c) server
+  let app :: Config -> Application
+      app c =
+        serveWithContext api (context cookieConfig jwtConfig) $
+          hoistServerWithContext api (Proxy :: Proxy '[CookieSettings, JWTSettings]) (runAppAsHandler c) (server cookieConfig jwtConfig)
   run port $ app config
