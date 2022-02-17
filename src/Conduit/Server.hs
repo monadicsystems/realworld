@@ -86,17 +86,14 @@ unprotectedServer cookieSettings jwtSettings =
           Succeeded signUpForm -> do
             -- If valid form, write user to DB and return creds
             -- TODO: Write user info to DB and getCreds
-            queryResult <- runStatement insertUser signUpForm
-            case queryResult of
-              Left _ -> undefined
-              Right user -> do
-                mApplyCookies <- liftIO $ acceptLogin cookieSettings jwtSettings user
-                case mApplyCookies of
-                  Nothing -> throwError err401
-                  Just applyCookies ->
-                    applyCookies (Resource.SignUpSuccess user)
-                      & addHeader (toUrl homeLink)
-                      & pure
+            user <- insertUser signUpForm
+            mApplyCookies <- liftIO $ acceptLogin cookieSettings jwtSettings user
+            case mApplyCookies of
+              Nothing -> throwError err401
+              Just applyCookies ->
+                applyCookies (Resource.SignUpSuccess user)
+                  & addHeader (toUrl homeLink)
+                  & pure
 
     authorizeSignIn ::
       CookieSettings ->
@@ -130,17 +127,14 @@ unprotectedServer cookieSettings jwtSettings =
           Succeeded signInForm -> do
             -- If valid form, fetch user from DB and return creds
             -- TODO: Fetch user info from DB and getCreds
-            queryResult <- runStatement verifyUser signInForm
-            case queryResult of
-              Left _ -> undefined
-              Right user -> do
-                mApplyCookies <- liftIO $ acceptLogin cookieSettings jwtSettings user
-                case mApplyCookies of
-                  Nothing -> throwError err401
-                  Just applyCookies ->
-                    applyCookies (Resource.SignInSuccess user)
-                      & addHeader (toUrl homeLink)
-                      & pure
+            user <- verifyUser signInForm
+            mApplyCookies <- liftIO $ acceptLogin cookieSettings jwtSettings user
+            case mApplyCookies of
+              Nothing -> throwError err401
+              Just applyCookies ->
+                applyCookies (Resource.SignInSuccess user)
+                  & addHeader (toUrl homeLink)
+                  & pure
 
 protectedServer :: AuthResult Model.User -> ServerT ProtectedRoutes App
 protectedServer (Authenticated user) = authHandler user -- if authenticated go to authed routes

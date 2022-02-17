@@ -26,7 +26,7 @@ import qualified Hasql.Statement as Statement
 import Hasql.TH (resultlessStatement)
 import qualified Hasql.TH as TH
 
--- USERS START --
+-- HELPERS START --
 
 tupleToUser :: (Int32, Text, Text, Text, Text) -> User
 tupleToUser (pk, username, email, imageUrl, bio) =
@@ -55,13 +55,66 @@ signUpFormToTuple SignUpForm {..} =
     signUpFormPassword
   )
 
-dropUsersTable :: Session ()
-dropUsersTable =
+newEditorFormToTuple :: NewEditorForm -> (Int32, Text, Text, Text)
+newEditorFormToTuple NewEditorForm {..} =
+  (unID newEditorFormAuthorID, newEditorFormTitle, newEditorFormDescription, newEditorFormBody)
+
+tupleToArticle :: (Int32, Int32, Text, Text, Text, Int32, UTCTime) -> Article
+tupleToArticle (articleID, authorID, title, description, body, favorites, createdAt) =
+  Article
+    { articleAuthorID = ID articleID,
+      articleBody = body,
+      articleCreatedAt = createdAt,
+      articleDescription = description,
+      articleFavorites = favorites,
+      articleID = ID articleID,
+      articleTitle = title
+    }
+
+updateEditorFormToTuple :: UpdateEditorForm -> (Int32, Text, Text, Text)
+updateEditorFormToTuple UpdateEditorForm {..} =
+  (unID updateEditorFormArticleID, updateEditorFormTitle, updateEditorFormDescription, updateEditorFormBody)
+
+commentFormToTuple :: CommentForm -> (Int32, Int32, Text)
+commentFormToTuple CommentForm {..} =
+  (unID commentFormAuthorID, unID commentFormArticleID, commentFormBody)
+
+tupleToComment :: (Int32, Int32, Int32, Text, UTCTime) -> Comment
+tupleToComment (commentID, authorID, articleID, body, createdAt) =
+  Comment
+    { commentArticleID = ID articleID,
+      commentAuthorID = ID authorID,
+      commentBody = body,
+      commentCreatedAt = createdAt,
+      commentID = ID commentID
+    }
+
+tupleToArticleTagsVectors :: (ID Article, Text) -> (Vector Int32, Vector Text)
+tupleToArticleTagsVectors (ID articleID, commaSepTags) =
+  [ (articleID, tag)
+    | tag <- Prelude.map strip $ split (',' ==) commaSepTags
+  ]
+    & Prelude.unzip
+    & bimap fromList fromList
+
+followToTuple :: Follow -> (Int32, Int32)
+followToTuple ((ID followerID) :-> (ID followeeID)) =
+  (followerID, followeeID)
+
+tupleToFollow :: (Int32, Int32) -> Follow
+tupleToFollow (followerID, followeeID) = (ID followerID) :-> (ID followeeID)
+
+-- HELPERS END --
+
+-- USERS START --
+
+dropUsersSession :: Session ()
+dropUsersSession =
   Session.sql
     [TH.uncheckedSql| drop table if exists users |]
 
-createUsersTable :: Session ()
-createUsersTable =
+createUsersSession :: Session ()
+createUsersSession =
   Session.sql
     [TH.uncheckedSql|
       create table if not exists users (
@@ -74,8 +127,8 @@ createUsersTable =
       );
     |]
 
-insertUser :: Statement SignUpForm User
-insertUser =
+insertUserStatement :: Statement SignUpForm User
+insertUserStatement =
   dimap
     signUpFormToTuple
     tupleToUser
@@ -85,8 +138,8 @@ insertUser =
       returning pk_user :: int4, username :: text, email :: text, imageUrl :: text, bio :: text
     |]
 
-updateUser :: Statement SettingsForm User
-updateUser =
+updateUserStatement :: Statement SettingsForm User
+updateUserStatement =
   dimap
     settingsFormToTuple
     tupleToUser
@@ -105,8 +158,8 @@ updateUser =
       returning pk_user :: int4, username :: text, email :: text, imageUrl :: text, bio :: text
     |]
 
-verifyUser :: Statement SignInForm User
-verifyUser =
+verifyUserStatement :: Statement SignInForm User
+verifyUserStatement =
   dimap
     signInFormPassword
     tupleToUser
@@ -125,13 +178,13 @@ verifyUser =
 
 -- ARTICLES START --
 
-dropArticlesTable :: Session ()
-dropArticlesTable =
+dropArticlesSession :: Session ()
+dropArticlesSession =
   Session.sql
     [TH.uncheckedSql| drop table if exists articles |]
 
-createArticlesTable :: Session ()
-createArticlesTable =
+createArticlesSession :: Session ()
+createArticlesSession =
   Session.sql
     [TH.uncheckedSql|
       create table if not exists articles (
@@ -145,24 +198,8 @@ createArticlesTable =
       );
     |]
 
-newEditorFormToTuple :: NewEditorForm -> (Int32, Text, Text, Text)
-newEditorFormToTuple NewEditorForm {..} =
-  (unID newEditorFormAuthorID, newEditorFormTitle, newEditorFormDescription, newEditorFormBody)
-
-tupleToArticle :: (Int32, Int32, Text, Text, Text, Int32, UTCTime) -> Article
-tupleToArticle (articleID, authorID, title, description, body, favorites, createdAt) =
-  Article
-    { articleAuthorID = ID articleID,
-      articleBody = body,
-      articleCreatedAt = createdAt,
-      articleDescription = description,
-      articleFavorites = favorites,
-      articleID = ID articleID,
-      articleTitle = title
-    }
-
-insertArticle :: Statement NewEditorForm Article
-insertArticle =
+insertArticleStatement :: Statement NewEditorForm Article
+insertArticleStatement =
   dimap
     newEditorFormToTuple
     tupleToArticle
@@ -172,12 +209,8 @@ insertArticle =
       returning pk_article :: int4, fk_user :: int4, title :: text, description :: text, body :: text, favorites :: int4, created_at :: timestamptz
     |]
 
-updateEditorFormToTuple :: UpdateEditorForm -> (Int32, Text, Text, Text)
-updateEditorFormToTuple UpdateEditorForm {..} =
-  (unID updateEditorFormArticleID, updateEditorFormTitle, updateEditorFormDescription, updateEditorFormBody)
-
-updateArticle :: Statement UpdateEditorForm Article
-updateArticle =
+updateArticleStatement :: Statement UpdateEditorForm Article
+updateArticleStatement =
   dimap
     updateEditorFormToTuple
     tupleToArticle
@@ -190,8 +223,8 @@ updateArticle =
         returning pk_article :: int4, fk_user :: int4, title :: text, description :: text, body :: text, favorites :: int4, created_at :: timestamptz
     |]
 
-deleteArticle :: Statement (ID Article) Int64
-deleteArticle =
+deleteArticleStatement :: Statement (ID Article) Int64
+deleteArticleStatement =
   dimap
     unID
     id
@@ -203,13 +236,13 @@ deleteArticle =
 
 -- COMMENTS START --
 
-dropCommentsTable :: Session ()
-dropCommentsTable =
+dropCommentsSession :: Session ()
+dropCommentsSession =
   Session.sql
     [TH.uncheckedSql| drop table if exists comments |]
 
-createCommentsTable :: Session ()
-createCommentsTable =
+createCommentsSession :: Session ()
+createCommentsSession =
   Session.sql
     [TH.uncheckedSql|
       create table if not exists comments (
@@ -221,22 +254,8 @@ createCommentsTable =
       );
     |]
 
-commentFormToTuple :: CommentForm -> (Int32, Int32, Text)
-commentFormToTuple CommentForm {..} =
-  (unID commentFormAuthorID, unID commentFormArticleID, commentFormBody)
-
-tupleToComment :: (Int32, Int32, Int32, Text, UTCTime) -> Comment
-tupleToComment (commentID, authorID, articleID, body, createdAt) =
-  Comment
-    { commentArticleID = ID articleID,
-      commentAuthorID = ID authorID,
-      commentBody = body,
-      commentCreatedAt = createdAt,
-      commentID = ID commentID
-    }
-
-insertComment :: Statement CommentForm Comment
-insertComment =
+insertCommentStatement :: Statement CommentForm Comment
+insertCommentStatement =
   dimap
     commentFormToTuple
     tupleToComment
@@ -246,8 +265,8 @@ insertComment =
       returning pk_comment :: int4, fk_user :: int4, fk_article :: int4, body :: text, created_at :: timestamptz
     |]
 
-deleteComment :: Statement (ID Comment) Int64
-deleteComment =
+deleteCommentStatement :: Statement (ID Comment) Int64
+deleteCommentStatement =
   dimap
     unID
     id
@@ -259,13 +278,13 @@ deleteComment =
 
 -- TAGS START --
 
-dropTagsTable :: Session ()
-dropTagsTable =
+dropTagsSession :: Session ()
+dropTagsSession =
   Session.sql
     [TH.uncheckedSql| drop table if exists tags |]
 
-createTagsTable :: Session ()
-createTagsTable =
+createTagsSession :: Session ()
+createTagsSession =
   Session.sql
     [TH.uncheckedSql|
         create table if not exists tags (
@@ -273,8 +292,8 @@ createTagsTable =
         );
     |]
 
-insertTags :: Statement Text ()
-insertTags =
+insertTagsStatement :: Statement Text ()
+insertTagsStatement =
   dimap
     (fromList . Prelude.map strip . split (',' ==))
     id
@@ -287,13 +306,13 @@ insertTags =
 
 -- ARTICLES TAGS START --
 
-dropArticlesTagsTable :: Session ()
-dropArticlesTagsTable =
+dropArticlesTagsSession :: Session ()
+dropArticlesTagsSession =
   Session.sql
     [TH.uncheckedSql| drop table if exists articles_tags |]
 
-createArticlesTagsTable :: Session ()
-createArticlesTagsTable =
+createArticlesTagsSession :: Session ()
+createArticlesTagsSession =
   Session.sql
     [TH.uncheckedSql|
       create table if not exists articles_tags (
@@ -303,16 +322,8 @@ createArticlesTagsTable =
       );
     |]
 
-tupleToArticleTagsVectors :: (ID Article, Text) -> (Vector Int32, Vector Text)
-tupleToArticleTagsVectors (ID articleID, commaSepTags) =
-  [ (articleID, tag)
-    | tag <- Prelude.map strip $ split (',' ==) commaSepTags
-  ]
-    & Prelude.unzip
-    & bimap fromList fromList
-
-insertArticleTags :: Statement (ID Article, Text) ()
-insertArticleTags =
+insertArticleTagsStatement :: Statement (ID Article, Text) ()
+insertArticleTagsStatement =
   dimap
     tupleToArticleTagsVectors
     id
@@ -325,13 +336,13 @@ insertArticleTags =
 
 -- FOLLOWS START --
 
-dropFollowsTable :: Session ()
-dropFollowsTable =
+dropFollowsSession :: Session ()
+dropFollowsSession =
   Session.sql
     [TH.uncheckedSql| drop table if exists follows |]
 
-createFollowsTable :: Session ()
-createFollowsTable =
+createFollowsSession :: Session ()
+createFollowsSession =
   Session.sql
     [TH.uncheckedSql|
       create table if not exists follows (
@@ -341,15 +352,8 @@ createFollowsTable =
       );
     |]
 
-followToTuple :: Follow -> (Int32, Int32)
-followToTuple ((ID followerID) :-> (ID followeeID)) =
-  (followerID, followeeID) 
-
-tupleToFollow :: (Int32, Int32) -> Follow
-tupleToFollow (followerID, followeeID) = (ID followerID) :-> (ID followeeID)
-
-insertArticlesTags :: Statement Follow Follow
-insertArticlesTags =
+insertFollowStatement :: Statement Follow Follow
+insertFollowStatement =
   dimap
     followToTuple
     tupleToFollow
@@ -358,6 +362,10 @@ insertArticlesTags =
       values ($1 :: int4, $2 :: int4)
       returning fk_follower :: int4, fk_followee :: int4
     |]
+
+-- FOLLOWS END --
+
+-- EXECUTION HELPERS START --
 
 runStatement :: forall i o. Statement i o -> i -> App (Either QueryError o)
 runStatement statement input = do
@@ -369,7 +377,25 @@ runUncheckedSql session = do
   conn <- grab @Connection
   liftIO $ Session.run session conn
 
--- FOLLOWS END --
+-- EXECUTION HELPERS END --
+
+-- EXECUTION START --
+
+insertUser :: SignUpForm -> App User
+insertUser signUpForm = do
+  queryResult <- runStatement insertUserStatement signUpForm
+  case queryResult of
+    Left _ -> undefined
+    Right user -> pure user
+
+verifyUser :: SignInForm -> App User
+verifyUser signInForm = do
+  queryResult <- runStatement verifyUserStatement signInForm
+  case queryResult of
+    Left _ -> undefined
+    Right user -> pure user
+
+-- EXECUTION END --
 
 {-
 insertCfd :: Connection.Connection -> ContactFormData -> IO (Either QueryError Contact)
