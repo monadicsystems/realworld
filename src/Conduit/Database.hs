@@ -365,6 +365,31 @@ insertFollowStatement =
 
 -- FOLLOWS END --
 
+getUserByUsernameStatement :: Statement Text User
+getUserByUsernameStatement =
+  dimap
+    id
+    tupleToUser
+    [TH.singletonStatement|
+      select
+        pk_user :: int4,
+        username :: text,
+        email :: text,
+        imageUrl :: text,
+        bio :: text
+      from users
+      where username = $1 :: text
+    |]
+
+doesFollowExistStatment :: Statement (Int32, Int32) Bool
+doesFollowExistStatment =
+  dimap
+    id
+    id
+    [TH.singletonStatement|
+      select exists (select * from follows where fk_follower = $1 :: int4 and fk_followee = $2 :: int4) :: bool
+    |]
+
 -- EXECUTION HELPERS START --
 
 runStatementIO :: forall i o. Connection -> Statement i o -> i -> IO (Either QueryError o)
@@ -386,11 +411,18 @@ runUncheckedSql session = do
 -- EXECUTION HELPERS END --
 
 -- EXECUTION START --
+
 insertUser :: SignUpForm -> App (Either QueryError User)
 insertUser = runStatement insertUserStatement
 
 verifyUser :: SignInForm -> App (Either QueryError User)
 verifyUser = runStatement verifyUserStatement
+
+getUserByUsername :: Text -> App (Either QueryError User)
+getUserByUsername = runStatement getUserByUsernameStatement
+
+doesFollowExist :: User -> User -> App (Either QueryError Bool)
+doesFollowExist user1 user2 = runStatement doesFollowExistStatment (unID $ userID user1, unID $ userID user2)
 
 -- EXECUTION END --
 

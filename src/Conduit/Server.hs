@@ -20,6 +20,7 @@ import Data.Function ((&))
 import Data.Map.Strict (toList)
 import Data.Proxy
 import Data.Text
+import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
 import qualified Hasql.Connection as Connection
 import Lucid
@@ -156,11 +157,11 @@ protectedServer _ = noAuthHandler -- if not auth is there then redirect accordin
 authHandler :: Model.User -> ServerT ProtectedRoutes App
 authHandler user =
   homeHandler
-    :<|> profileHandler
     :<|> followHandler
     :<|> unfollowHandler
     :<|> editorHandler
     :<|> settingsHandler
+    :<|> profileHandler
   where
     homeHandler :: Maybe Text -> App (Partial Home)
     homeHandler hxReq =
@@ -174,9 +175,6 @@ authHandler user =
     unfollowHandler :: Model.UnfollowForm -> App FollowButton
     unfollowHandler = undefined
 
-    profileHandler :: Maybe Text -> Text -> App (Partial Profile)
-    profileHandler hxReq mbUsername = undefined
-
     editorHandler :: Maybe Text -> App (Partial Editor)
     editorHandler hxReq =
       case hxReq of
@@ -189,25 +187,49 @@ authHandler user =
         Just "true" -> pure $ View.NotWrapped $ View.Settings user
         _ -> pure $ View.Wrapped (Just user) $ View.Settings user
 
+    profileHandler :: Maybe Text -> Text -> App (Partial Profile)
+    profileHandler hxReq atUsername = do
+      let username = T.drop 1 atUsername
+      userResult <- getUserByUsername username
+      case userResult of
+        Left _ -> throwError $ err401{errReasonPhrase = "DEEZ"}
+        Right user' -> do
+          -- See if user is following the other
+          isFollowingResult <- doesFollowExist user user'
+          case isFollowingResult of
+            Left _ -> throwError $ err401{errReasonPhrase = "DEEZ"}
+            Right isFollowing ->
+              case hxReq of
+                Just "true" -> pure $ View.NotWrapped $ View.PublicProfile user' isFollowing
+                _ -> pure $ View.Wrapped (Just user) $ View.PublicProfile user' isFollowing
+
 noAuthHandler :: Server ProtectedRoutes
 noAuthHandler =
   homeHandler
-    :<|> profileHandler
     :<|> (\_ -> redirectFor @UnfollowButton)
     :<|> (\_ -> redirectFor @FollowButton)
     :<|> (\_ -> redirectFor @(Partial Editor))
     :<|> (\_ -> redirectFor @(Partial Settings))
+    :<|> profileHandler
   where
+    redirectFor :: forall a. ToHtml a => App a
+    redirectFor = throwError $ err303 {errHeaders = [("Location", encodeUtf8 $ toUrl signUpFormLink)]}
+
     homeHandler :: Maybe Text -> App (Partial Home)
     homeHandler hxReq = case hxReq of
       Just "true" -> pure $ View.NotWrapped $ View.Home Nothing
       _ -> pure $ View.Wrapped Nothing $ View.Home Nothing
 
     profileHandler :: Maybe Text -> Text -> App (Partial Profile)
-    profileHandler = undefined
-
-    redirectFor :: forall a. ToHtml a => App a
-    redirectFor = throwError $ err303 {errHeaders = [("Location", encodeUtf8 $ toUrl signUpFormLink)]}
+    profileHandler hxReq atUsername = do
+      let username = T.drop 1 atUsername
+      result <- getUserByUsername username
+      case result of
+        Left _ -> throwError $ err401{errReasonPhrase = "DEEZ"}
+        Right user -> do
+          case hxReq of
+            Just "true" -> pure $ View.NotWrapped $ View.PublicProfile user False
+            _ -> pure $ View.Wrapped Nothing $ View.PublicProfile user False
 
 server :: CookieSettings -> JWTSettings -> Server Routes
 server cookieSettings jwtSettings = protectedServer :<|> unprotectedServer cookieSettings jwtSettings
@@ -249,20 +271,19 @@ runApp port = do
   let (AppConfig dbConn) = appConfig
 
   -- DB SETUP START --
-
   -- DROP TABLES IF THEY EXIST
-  runUncheckedSqlIO dbConn dropUsersSession
-  runUncheckedSqlIO dbConn dropArticlesSession
-  runUncheckedSqlIO dbConn dropCommentsSession
-  runUncheckedSqlIO dbConn dropTagsSession
-  runUncheckedSqlIO dbConn dropArticlesTagsSession
-  runUncheckedSqlIO dbConn dropFollowsSession
+  -- runUncheckedSqlIO dbConn dropCommentsSession
+  -- runUncheckedSqlIO dbConn dropArticlesTagsSession
+  -- runUncheckedSqlIO dbConn dropArticlesSession
+  -- runUncheckedSqlIO dbConn dropFollowsSession
+  -- runUncheckedSqlIO dbConn dropUsersSession
+  -- runUncheckedSqlIO dbConn dropTagsSession
 
   -- CREATE TABLES
   runUncheckedSqlIO dbConn createUsersSession
   runUncheckedSqlIO dbConn createArticlesSession
-  runUncheckedSqlIO dbConn createCommentsSession
   runUncheckedSqlIO dbConn createTagsSession
+  runUncheckedSqlIO dbConn createCommentsSession
   runUncheckedSqlIO dbConn createArticlesTagsSession
   runUncheckedSqlIO dbConn createFollowsSession
 

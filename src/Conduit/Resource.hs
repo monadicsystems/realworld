@@ -5,6 +5,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -77,7 +78,7 @@ instance ToHtml Navbar where
                     i_ [class_ "ion-gear-a"] ""
                     "Settings"
               li_ [class_ "nav-item"] $
-                a_ [class_ "nav-link", href_ ""] $ do
+                a_ [class_ "nav-link", href_ . toUrl . profileLink $ "@" <> username] $ do
                   img_ [class_ "user-pic", src_ imageUrl]
                   toHtml $ " " <> username <> " "
   toHtmlRaw = toHtml
@@ -126,51 +127,38 @@ instance ToHtml a => ToHtml (Partial a) where
 
 data Feed
   = Feed
+      Bool -- is personal for user profile?
       [(Text, Text, Bool)] -- Feed nav pill name, link and whether or not it's active or disabled
-      [Model.Article] -- List of articles
+      [(Model.User, Model.Article, [Model.Tag])] -- List of author article tags tuple
 
 instance ToHtml Feed where
-  toHtml (Feed pills articles) = do
-    div_ [class_ "feed-toggle"] $
+  toHtml (Feed isProfile pills articles) = do
+    div_ [class_ $ if isProfile then "articles-toggle" else "feed-toggle"] $
       ul_ [class_ "nav nav-pills outline-active"] $ do
         forM_ pills $ \(name, link, isActive) -> do
           li_ [class_ "nav-item"] $
             a_ [class_ $ "nav-link " <> if isActive then "active" else "disabled", href_ link] $ toHtml name
     -- ARTICLES START
-    forM_ articles $ \_ -> undefined
-
-  {-
-  div_ [class_ "article-preview"] $ do
-    div_ [class_ "article-meta"] $ do
-      a_ [href_ "profile.html"] $ img_ [src_ "http://i.imgur.com/Qr71crq.jpg"]
-      div_ [class_ "info"] $ do
-        a_ [href_ "", class_ "author"] "Eric Simons"
-        span_ [class_ "date"] "January 20th"
-      button_ [class_ "btn btn-outline-primary btn-sm pull-xs-right"] $ do
-        i_ [class_ "ion-heart"] ""
-        " 29\n                        "
-    a_ [href_ "", class_ "preview-link"] $ do
-      h1_ "How to build webapps that scale"
-      p_ "This is the description for the post."
-      span_ "Read more..."
-  div_ [class_ "article-preview"] $ do
-    div_ [class_ "article-meta"] $ do
-      a_ [href_ "profile.html"] $ img_ [src_ "http://i.imgur.com/N4VcUeJ.jpg"]
-      div_ [class_ "info"] $ do
-        a_ [href_ "", class_ "author"] "Albert Pai"
-        span_ [class_ "date"] "January 20th"
-      button_ [class_ "btn btn-outline-primary btn-sm pull-xs-right"] $ do
-        i_ [class_ "ion-heart"] ""
-        " 32\n                        "
-    a_ [href_ "", class_ "preview-link"] $ do
-      h1_ "The song you won't ever stop singing. No matter how hard you try."
-      p_ "This is the description for the post."
-      span_ "Read more..."
-    -}
+    forM_ articles $ \(Model.User{..}, Model.Article{..}, tags) ->
+      div_ [class_ "article-preview"] $ do
+        div_ [class_ "article-meta"] $ do
+          a_ [href_ . toUrl . profileLink $ "@" <> userUsername] $ img_ [src_ userImageUrl]
+          div_ [class_ "info"] $ do
+            a_ [href_ . toUrl . profileLink $ "@" <> userUsername, class_ "author"] $ toHtml userUsername
+            span_ [class_ "date"] $ toHtml ("January 20th" :: Text)-- articleCreatedAt
+          button_ [class_ "btn btn-outline-primary btn-sm pull-xs-right"] $ do
+            i_ [class_ "ion-heart"] ""
+            toHtml $ show articleFavorites
+        a_ [href_ "" {- slugify article title -}, class_ "preview-link"] $ do
+          h1_ $ toHtml articleTitle
+          p_ $ toHtml articleDescription
+          span_ $ toHtml ("Read more..." :: Text)
+          ul_ [class_ "tag-list"] $ forM_ tags $ \(Model.Tag t) ->
+            li_ [class_ "tag-default tag-pill tag-outline"] $ toHtml t
   -- ARTICLES END
   toHtmlRaw = toHtml
 
-data Tagbar = Tagbar [(Text, Text)] -- name of tag and what it links too
+data Tagbar = Tagbar [(Text, Text)] -- name of tag and what it links too, could just be name bcuz same as link
 
 instance ToHtml Tagbar where
   toHtml (Tagbar tags) =
@@ -198,9 +186,10 @@ instance ToHtml Home where
           -- FEED
           div_ [id_ "feeds", class_ "col-md-9"] $
             toHtml $ case mbUser of
-              Nothing -> Feed [("Global Feed", "", True)] []
+              Nothing -> Feed False [("Global Feed", "", True)] []
               Just _ ->
                 Feed
+                  False
                   [("Your Feed", "", True), ("Global Feed", "", False)]
                   []
 
@@ -302,7 +291,10 @@ instance ToHtml Profile where
               i_ [class_ "ion-gear-a"] ""
               "Edit Profile Settings"
       PublicProfile otherUser following ->
-        profileTemplate otherUser $ if following then toHtml $ UnfollowButton $ Model.userUsername otherUser else toHtml $ FollowButton $ Model.userUsername otherUser
+        profileTemplate otherUser $
+          if following
+            then toHtml $ UnfollowButton $ Model.userUsername otherUser
+            else toHtml $ FollowButton $ Model.userUsername otherUser
     where
       profileTemplate :: Monad m => Model.User -> HtmlT m () -> HtmlT m ()
       profileTemplate (Model.User bio email _ imageUrl username) action =
@@ -318,39 +310,7 @@ instance ToHtml Profile where
           div_ [class_ "container"] $
             div_ [class_ "row"] $
               div_ [class_ "col-xs-12 col-md-10 offset-md-1"] $ do
-                div_ [class_ "articles-toggle"] $
-                  ul_ [class_ "nav nav-pills outline-active"] $ do
-                    li_ [class_ "nav-item"] $ a_ [class_ "nav-link active", href_ ""] "My Articles"
-                    li_ [class_ "nav-item"] $ a_ [class_ "nav-link", href_ ""] "Favorited Articles"
-                div_ [class_ "article-preview"] $ do
-                  div_ [class_ "article-meta"] $ do
-                    a_ [href_ ""] $ img_ [src_ "http://i.imgur.com/Qr71crq.jpg"]
-                    div_ [class_ "info"] $ do
-                      a_ [href_ "", class_ "author"] "Eric Simons"
-                      span_ [class_ "date"] "January 20th"
-                    button_ [class_ "btn btn-outline-primary btn-sm pull-xs-right"] $ do
-                      i_ [class_ "ion-heart"] ""
-                      " 29\n                        "
-                  a_ [href_ "", class_ "preview-link"] $ do
-                    h1_ "How to build webapps that scale"
-                    p_ "This is the description for the post."
-                    span_ "Read more..."
-                div_ [class_ "article-preview"] $ do
-                  div_ [class_ "article-meta"] $ do
-                    a_ [href_ ""] $ img_ [src_ "http://i.imgur.com/N4VcUeJ.jpg"]
-                    div_ [class_ "info"] $ do
-                      a_ [href_ "", class_ "author"] "Albert Pai"
-                      span_ [class_ "date"] "January 20th"
-                    button_ [class_ "btn btn-outline-primary btn-sm pull-xs-right"] $ do
-                      i_ [class_ "ion-heart"] ""
-                      " 32\n                        "
-                  a_ [href_ "", class_ "preview-link"] $ do
-                    h1_ "The song you won't ever stop singing. No matter how hard you try."
-                    p_ "This is the description for the post."
-                    span_ "Read more..."
-                    ul_ [class_ "tag-list"] $ do
-                      li_ [class_ "tag-default tag-pill tag-outline"] "Music"
-                      li_ [class_ "tag-default tag-pill tag-outline"] "Song"
+                toHtml $ Feed True [("My Articles", "", True), ("Favorited Articles", "", False)] []
   toHtmlRaw = toHtml
 
 data Settings = Settings Model.User
@@ -362,7 +322,7 @@ instance ToHtml Settings where
         div_ [class_ "row"] $
           div_ [class_ "col-md-6 offset-md-3 col-xs-12"] $ do
             h1_ [class_ "text-xs-center"] "Your Settings"
-            form_ $
+            form_ $ do
               fieldset_ $ do
                 fieldset_ [class_ "form-group"] $
                   input_
@@ -399,6 +359,8 @@ instance ToHtml Settings where
                       placeholder_ "New Password"
                     ]
                 button_ [class_ "btn btn-lg btn-primary pull-xs-right"] "Update Settings"
+              hr_ []
+              button_ [ class_ "btn btn-outline-danger" ] $ "Or click here to logout."
   toHtmlRaw = toHtml
 
 data Editor = Editor
@@ -566,8 +528,6 @@ type UnprotectedRoutes =
 
 type HomeRoute = HXRequest :> Get '[HTML] (Partial Home)
 
-type ProfileRoute = "profile" :> HXRequest :> Capture "username" Text :> Get '[HTML] (Partial Profile)
-
 type FollowRoute = "follow" :> ReqBody '[FormUrlEncoded] Model.FollowForm :> Post '[HTML] UnfollowButton
 
 type UnfollowRoute = "unfollow" :> ReqBody '[FormUrlEncoded] Model.UnfollowForm :> Post '[HTML] FollowButton
@@ -576,13 +536,15 @@ type EditorRoute = "editor" :> HXRequest :> Get '[HTML] (Partial Editor)
 
 type SettingsRoute = "settings" :> HXRequest :> Get '[HTML] (Partial Settings)
 
+type ProfileRoute = "profile" :> HXRequest :> Capture "username" Text :> Get '[HTML] (Partial Profile)
+
 type ProtectedRoutes =
   HomeRoute
-    :<|> ProfileRoute
     :<|> FollowRoute
     :<|> UnfollowRoute
     :<|> EditorRoute
     :<|> SettingsRoute
+    :<|> ProfileRoute
 
 type Routes =
   (Auth '[Cookie] Model.User :> ProtectedRoutes)
