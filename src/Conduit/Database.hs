@@ -102,7 +102,7 @@ followToTuple ((ID followerID) :-> (ID followeeID)) =
   (followerID, followeeID)
 
 tupleToFollow :: (Int32, Int32) -> Follow
-tupleToFollow (followerID, followeeID) = (ID followerID) :-> (ID followeeID)
+tupleToFollow (followerID, followeeID) = ID followerID :-> ID followeeID
 
 -- HELPERS END --
 
@@ -367,33 +367,30 @@ insertFollowStatement =
 
 -- EXECUTION HELPERS START --
 
+runStatementIO :: forall i o. Connection -> Statement i o -> i -> IO (Either QueryError o)
+runStatementIO conn statement input = Session.run (Session.statement input statement) conn
+
+runUncheckedSqlIO :: Connection -> Session () -> IO (Either QueryError ())
+runUncheckedSqlIO conn session = Session.run session conn
+
 runStatement :: forall i o. Statement i o -> i -> App (Either QueryError o)
 runStatement statement input = do
   conn <- grab @Connection
-  liftIO $ Session.run (Session.statement input statement) conn
+  liftIO $ runStatementIO conn statement input
 
 runUncheckedSql :: Session () -> App (Either QueryError ())
 runUncheckedSql session = do
   conn <- grab @Connection
-  liftIO $ Session.run session conn
+  liftIO $ runUncheckedSqlIO conn session
 
 -- EXECUTION HELPERS END --
 
 -- EXECUTION START --
+insertUser :: SignUpForm -> App (Either QueryError User)
+insertUser = runStatement insertUserStatement
 
-insertUser :: SignUpForm -> App User
-insertUser signUpForm = do
-  queryResult <- runStatement insertUserStatement signUpForm
-  case queryResult of
-    Left _ -> undefined
-    Right user -> pure user
-
-verifyUser :: SignInForm -> App User
-verifyUser signInForm = do
-  queryResult <- runStatement verifyUserStatement signInForm
-  case queryResult of
-    Left _ -> undefined
-    Right user -> pure user
+verifyUser :: SignInForm -> App (Either QueryError User)
+verifyUser = runStatement verifyUserStatement
 
 -- EXECUTION END --
 

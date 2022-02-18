@@ -15,11 +15,13 @@ import Conduit.Validate as Validate
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader
 import Data.Aeson
+import qualified Data.ByteString as BS
 import Data.Function ((&))
 import Data.Map.Strict (toList)
 import Data.Proxy
 import Data.Text
 import Data.Text.Encoding (encodeUtf8)
+import qualified Hasql.Connection as Connection
 import Lucid
 import Network.Wai.Handler.Warp (run)
 import Servant hiding (Server)
@@ -39,11 +41,6 @@ unprotectedServer cookieSettings jwtSettings =
     :<|> authorizeSignUp cookieSettings jwtSettings
     :<|> authorizeSignIn cookieSettings jwtSettings
   where
-    -- homeHandler :: Maybe Text -> Handler (Resource.Partial Resource.Home)
-    -- homeHandler hxReq = pure $ case hxReq of
-    --   Just "true" -> Resource.NotWrapped $ Resource.Home Nothing
-    --   _ -> Resource.Wrapped Nothing $ Resource.Home Nothing
-
     signUpFormHandler :: Maybe Text -> App (Resource.Partial Resource.SignUpForm)
     signUpFormHandler hxReq = pure $ case hxReq of
       Just "true" -> Resource.NotWrapped $ Resource.SignUpForm Nothing []
@@ -65,7 +62,6 @@ unprotectedServer cookieSettings jwtSettings =
       signUpForm = do
         -- Check that submission is valid
         formResult <- runForm Validate.signUpForm (toJSON signUpForm)
-        liftIO $ print signUpForm
         case formResult of
           ParsingFailed _ parseErr ->
             [parseErr]
@@ -86,14 +82,23 @@ unprotectedServer cookieSettings jwtSettings =
           Succeeded signUpForm -> do
             -- If valid form, write user to DB and return creds
             -- TODO: Write user info to DB and getCreds
-            user <- insertUser signUpForm
-            mApplyCookies <- liftIO $ acceptLogin cookieSettings jwtSettings user
-            case mApplyCookies of
-              Nothing -> throwError err401
-              Just applyCookies ->
-                applyCookies (Resource.SignUpSuccess user)
-                  & addHeader (toUrl homeLink)
+            result <- insertUser signUpForm
+            case result of
+              Left err ->
+                SignUpFailure signUpForm [pack $ show err]
+                  & noHeader
+                  & noHeader
+                  & noHeader
                   & pure
+              Right user -> do
+                mApplyCookies <- liftIO $ acceptLogin cookieSettings jwtSettings user
+                case mApplyCookies of
+                  Nothing -> throwError err401
+                  Just applyCookies ->
+                    Resource.SignUpSuccess user
+                      & applyCookies
+                      & addHeader (toUrl homeLink)
+                      & pure
 
     authorizeSignIn ::
       CookieSettings ->
@@ -127,14 +132,22 @@ unprotectedServer cookieSettings jwtSettings =
           Succeeded signInForm -> do
             -- If valid form, fetch user from DB and return creds
             -- TODO: Fetch user info from DB and getCreds
-            user <- verifyUser signInForm
-            mApplyCookies <- liftIO $ acceptLogin cookieSettings jwtSettings user
-            case mApplyCookies of
-              Nothing -> throwError err401
-              Just applyCookies ->
-                applyCookies (Resource.SignInSuccess user)
-                  & addHeader (toUrl homeLink)
+            result <- verifyUser signInForm
+            case result of
+              Left _ ->
+                SignInFailure signInForm ["Incorrect username or password"]
+                  & noHeader
+                  & noHeader
+                  & noHeader
                   & pure
+              Right user -> do
+                mApplyCookies <- liftIO $ acceptLogin cookieSettings jwtSettings user
+                case mApplyCookies of
+                  Nothing -> throwError err401
+                  Just applyCookies ->
+                    applyCookies (Resource.SignInSuccess user)
+                      & addHeader (toUrl homeLink)
+                      & pure
 
 protectedServer :: AuthResult Model.User -> ServerT ProtectedRoutes App
 protectedServer (Authenticated user) = authHandler user -- if authenticated go to authed routes
@@ -199,26 +212,64 @@ noAuthHandler =
 server :: CookieSettings -> JWTSettings -> Server Routes
 server cookieSettings jwtSettings = protectedServer :<|> unprotectedServer cookieSettings jwtSettings
 
-cookieConfig :: CookieSettings
-cookieConfig = defaultCookieSettings {cookieIsSecure = NotSecure, cookieSameSite = SameSiteStrict, cookieXsrfSetting = Nothing}
-
 context :: CookieSettings -> JWTSettings -> Context '[CookieSettings, JWTSettings]
 context cookieConfig jwtConfig = cookieConfig :. jwtConfig :. EmptyContext
 
 getJwtConfig :: IO JWTSettings
 getJwtConfig = defaultJWTSettings <$> generateKey
 
+getAppConfig :: IO AppConfig
+getAppConfig = do
+  dbSecret <- BS.readFile "secret.txt"
+  print dbSecret
+  let dbConnSettings = Connection.settings "localhost" 5432 "realworld" dbSecret "realworld"
+
+  connResult <- Connection.acquire dbConnSettings
+
+  case connResult of
+    Left err -> error $ show err
+    Right conn -> pure $ AppConfig conn
+
+runAppAsHandler :: forall a. AppConfig -> App a -> Handler a
+runAppAsHandler c x = liftIO $ runReaderT (unApp x) c
+
 runApp :: Int -> IO ()
 runApp port = do
   let api = Proxy :: Proxy Routes
-      runAppAsHandler :: Config -> App a -> Handler a
-      runAppAsHandler c x = liftIO (runReaderT (unApp x) c)
+      cookieConfig :: CookieSettings
+      cookieConfig = defaultCookieSettings
+        { cookieIsSecure = NotSecure
+        , cookieSameSite = SameSiteStrict
+        , cookieXsrfSetting = Nothing
+        }
 
   jwtConfig <- getJwtConfig
-  config <- undefined
+  appConfig <- getAppConfig
 
-  let app :: Config -> Application
+  let (AppConfig dbConn) = appConfig
+
+  -- DB SETUP START --
+
+  -- DROP TABLES IF THEY EXIST
+  runUncheckedSqlIO dbConn dropUsersSession
+  runUncheckedSqlIO dbConn dropArticlesSession
+  runUncheckedSqlIO dbConn dropCommentsSession
+  runUncheckedSqlIO dbConn dropTagsSession
+  runUncheckedSqlIO dbConn dropArticlesTagsSession
+  runUncheckedSqlIO dbConn dropFollowsSession
+
+  -- CREATE TABLES
+  runUncheckedSqlIO dbConn createUsersSession
+  runUncheckedSqlIO dbConn createArticlesSession
+  runUncheckedSqlIO dbConn createCommentsSession
+  runUncheckedSqlIO dbConn createTagsSession
+  runUncheckedSqlIO dbConn createArticlesTagsSession
+  runUncheckedSqlIO dbConn createFollowsSession
+
+  -- DB SETUP END --
+
+  let app :: AppConfig -> Application
       app c =
         serveWithContext api (context cookieConfig jwtConfig) $
           hoistServerWithContext api (Proxy :: Proxy '[CookieSettings, JWTSettings]) (runAppAsHandler c) (server cookieConfig jwtConfig)
-  run port $ app config
+  run port $ app appConfig

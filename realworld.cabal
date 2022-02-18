@@ -39,6 +39,7 @@ library
   build-depends:
       aeson
     , base >=4.7 && <5
+    , bytestring
     , containers
     , forma
     , hasql
@@ -72,6 +73,7 @@ executable realworld-exe
   build-depends:
       aeson
     , base >=4.7 && <5
+    , bytestring
     , containers
     , forma
     , hasql
@@ -107,6 +109,7 @@ test-suite realworld-test
   build-depends:
       aeson
     , base >=4.7 && <5
+    , bytestring
     , containers
     , forma
     , hasql
