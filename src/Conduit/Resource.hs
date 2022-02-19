@@ -251,7 +251,7 @@ instance ToHtml SignInForm where
             case errors of
               [] -> ""
               errors' -> ul_ [class_ "error-messages"] $ mapM_ (li_ [] . toHtml) errors'
-            form_ [hxPost_ $ toUrl signInFormSubmitLink, hxTarget_ "#content-slot"] $ do
+            form_ [hxPostSafe_ signInFormSubmitLink, hxTarget_ "#content-slot"] $ do
               fieldset_ [class_ "form-group"] $
                 input_
                   [ class_ "form-control form-control-lg",
@@ -284,12 +284,15 @@ instance ToHtml Profile where
         profileTemplate currentUser $
           a_
             [ class_ "btn btn-sm btn-outline-secondary action-btn",
+              hxBoost_ "true",
+              hxTarget_ "#content-slot",
+              hxPushUrlSafe_ (Left True),
               hxGetSafe_ settingsLink,
               href_ $ toUrl settingsLink
             ]
             $ do
               i_ [class_ "ion-gear-a"] ""
-              "Edit Profile Settings"
+              " Edit Profile Settings "
       PublicProfile otherUser following ->
         profileTemplate otherUser $
           if following
@@ -306,6 +309,7 @@ instance ToHtml Profile where
                   img_ [src_ imageUrl, class_ "user-img"]
                   h4_ $ toHtml username
                   p_ $ toHtml bio
+                  action
 
           div_ [class_ "container"] $
             div_ [class_ "row"] $
@@ -360,7 +364,7 @@ instance ToHtml Settings where
                     ]
                 button_ [class_ "btn btn-lg btn-primary pull-xs-right"] "Update Settings"
               hr_ []
-              button_ [ class_ "btn btn-outline-danger" ] $ "Or click here to logout."
+              button_ [class_ "btn btn-outline-danger", hxPostSafe_ logoutLink, hxTarget_ "#content-slot"] $ "Or click here to logout."
   toHtmlRaw = toHtml
 
 data Editor = Editor
@@ -397,16 +401,16 @@ instance ToHtml Article where
               span_ [class_ "date"] "January 20th"
             button_ [class_ "btn btn-sm btn-outline-secondary"] $ do
               i_ [class_ "ion-plus-round"] ""
-              "\n                    \160\n                    Follow Eric Simons "
+              "Follow Eric Simons"
               span_ [class_ "counter"] "(10)"
             button_ [class_ "btn btn-sm btn-outline-primary"] $ do
               i_ [class_ "ion-heart"] ""
-              "\n                    \160\n                    Favorite Post "
+              "Favorite Post"
               span_ [class_ "counter"] "(29)"
       div_ [class_ "container page"] $ do
         div_ [class_ "row article-content"] $
           div_ [class_ "col-md-12"] $ do
-            p_ "\n                    Web development technologies have evolved at an incredible clip over the past few years.\n                "
+            p_ "Web development technologies have evolved at an incredible clip over the past few years."
             h2_ [id_ "introducing-ionic"] "Introducing RealWorld."
             p_ "It's a great solution for learning how other frameworks work."
         hr_ []
@@ -418,10 +422,10 @@ instance ToHtml Article where
               span_ [class_ "date"] "January 20th"
             button_ [class_ "btn btn-sm btn-outline-secondary"] $ do
               i_ [class_ "ion-plus-round"] ""
-              "\n                    \160\n                    Follow Eric Simons\n                "
+              "Follow Eric Simons"
             button_ [class_ "btn btn-sm btn-outline-primary"] $ do
               i_ [class_ "ion-heart"] ""
-              "\n                    \160\n                    Favorite Post "
+              "Favorite Post"
               span_ [class_ "counter"] "(29)"
         div_ [class_ "row"] $
           div_ [class_ "col-xs-12 col-md-8 offset-md-2"] $ do
@@ -429,7 +433,7 @@ instance ToHtml Article where
               div_ [class_ "card-block"] $ textarea_ [class_ "form-control", placeholder_ "Write a comment...", rows_ "3"] ""
               div_ [class_ "card-footer"] $ do
                 img_ [src_ "http://i.imgur.com/Qr71crq.jpg", class_ "comment-author-img"]
-                button_ [class_ "btn btn-sm btn-primary"] "\n                            Post Comment\n                        "
+                button_ [class_ "btn btn-sm btn-primary"] "Post Comment"
             div_ [class_ "card"] $ do
               div_ [class_ "card-block"] $ p_ [class_ "card-text"] "With supporting text below as a natural lead-in to additional content."
               div_ [class_ "card-footer"] $ do
@@ -469,6 +473,14 @@ instance ToHtml SignInResponse where
     toHtml $ Navbar (Just user) True
   toHtmlRaw = toHtml
 
+data SignOutResponse = SignOutResponse
+
+instance ToHtml SignOutResponse where
+  toHtml SignOutResponse = do
+    toHtml $ Home Nothing
+    toHtml $ Navbar Nothing True
+  toHtmlRaw = toHtml
+
 data FollowButton = FollowButton Text
 
 instance ToHtml FollowButton where
@@ -481,7 +493,7 @@ instance ToHtml FollowButton where
       ]
       $ do
         i_ [class_ "ion-plus-round"] ""
-        "Follow " <> toHtml followee
+        " Follow " <> toHtml followee <> " "
   toHtmlRaw = toHtml
 
 data UnfollowButton = UnfollowButton Text
@@ -496,7 +508,7 @@ instance ToHtml UnfollowButton where
       ]
       $ do
         i_ [class_ "ion-plus-round"] ""
-        "Unfollow " <> toHtml unfollowee
+        " Unfollow " <> toHtml unfollowee <> " "
   toHtmlRaw = toHtml
 
 -- VIEWS END --
@@ -538,6 +550,8 @@ type SettingsRoute = "settings" :> HXRequest :> Get '[HTML] (Partial Settings)
 
 type ProfileRoute = "profile" :> HXRequest :> Capture "username" Text :> Get '[HTML] (Partial Profile)
 
+type LogoutRoute = "logout" :> Post '[HTML] (Headers '[HXPush, Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] SignOutResponse)
+
 type ProtectedRoutes =
   HomeRoute
     :<|> FollowRoute
@@ -545,6 +559,7 @@ type ProtectedRoutes =
     :<|> EditorRoute
     :<|> SettingsRoute
     :<|> ProfileRoute
+    :<|> LogoutRoute
 
 type Routes =
   (Auth '[Cookie] Model.User :> ProtectedRoutes)
@@ -593,5 +608,8 @@ editorLink = getLink $ proxy @(Auth '[Cookie] Model.User :> EditorRoute)
 
 settingsLink :: Link
 settingsLink = getLink $ proxy @(Auth '[Cookie] Model.User :> SettingsRoute)
+
+logoutLink :: Link
+logoutLink = getLink $ proxy @(Auth '[Cookie] Model.User :> LogoutRoute)
 
 -- LINKS END --

@@ -162,6 +162,7 @@ authHandler user =
     :<|> editorHandler
     :<|> settingsHandler
     :<|> profileHandler
+    :<|> logoutHandler
   where
     homeHandler :: Maybe Text -> App (Partial Home)
     homeHandler hxReq =
@@ -192,16 +193,35 @@ authHandler user =
       let username = T.drop 1 atUsername
       userResult <- getUserByUsername username
       case userResult of
-        Left _ -> throwError $ err401{errReasonPhrase = "DEEZ"}
+        Left _ -> throwError err401
         Right user' -> do
-          -- See if user is following the other
-          isFollowingResult <- doesFollowExist user user'
-          case isFollowingResult of
-            Left _ -> throwError $ err401{errReasonPhrase = "DEEZ"}
-            Right isFollowing ->
+          if Model.userID user == Model.userID user'
+            then
               case hxReq of
-                Just "true" -> pure $ View.NotWrapped $ View.PublicProfile user' isFollowing
-                _ -> pure $ View.Wrapped (Just user) $ View.PublicProfile user' isFollowing
+                Just "true" -> pure $ View.NotWrapped $ View.PrivateProfile user
+                _ -> pure $ View.Wrapped (Just user) $ View.PrivateProfile user
+            else do
+              -- See if user is following the other
+              isFollowingResult <- doesFollowExist user user'
+              case isFollowingResult of
+                Left _ -> throwError err401
+                Right isFollowing ->
+                  case hxReq of
+                    Just "true" -> pure $ View.NotWrapped $ View.PublicProfile user' isFollowing
+                    _ -> pure $ View.Wrapped (Just user) $ View.PublicProfile user' isFollowing
+
+    logoutHandler :: App (Headers '[HXPush, Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] Resource.SignOutResponse)
+    logoutHandler = do
+      SignOutResponse
+      & noHeader
+      & noHeader
+      & addHeader (toUrl homeLink)
+      & pure
+
+redirectFor :: forall a. App a
+redirectFor = throwError $ err303
+  { errHeaders = [("Location", encodeUtf8 $ toUrl signUpFormLink)]
+  }
 
 noAuthHandler :: Server ProtectedRoutes
 noAuthHandler =
@@ -211,10 +231,8 @@ noAuthHandler =
     :<|> (\_ -> redirectFor @(Partial Editor))
     :<|> (\_ -> redirectFor @(Partial Settings))
     :<|> profileHandler
+    :<|> redirectFor @(Headers '[HXPush, Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] SignOutResponse)
   where
-    redirectFor :: forall a. ToHtml a => App a
-    redirectFor = throwError $ err303 {errHeaders = [("Location", encodeUtf8 $ toUrl signUpFormLink)]}
-
     homeHandler :: Maybe Text -> App (Partial Home)
     homeHandler hxReq = case hxReq of
       Just "true" -> pure $ View.NotWrapped $ View.Home Nothing
@@ -225,7 +243,7 @@ noAuthHandler =
       let username = T.drop 1 atUsername
       result <- getUserByUsername username
       case result of
-        Left _ -> throwError $ err401{errReasonPhrase = "DEEZ"}
+        Left _ -> throwError err401
         Right user -> do
           case hxReq of
             Just "true" -> pure $ View.NotWrapped $ View.PublicProfile user False
@@ -280,12 +298,12 @@ runApp port = do
   -- runUncheckedSqlIO dbConn dropTagsSession
 
   -- CREATE TABLES
-  runUncheckedSqlIO dbConn createUsersSession
-  runUncheckedSqlIO dbConn createArticlesSession
-  runUncheckedSqlIO dbConn createTagsSession
-  runUncheckedSqlIO dbConn createCommentsSession
-  runUncheckedSqlIO dbConn createArticlesTagsSession
-  runUncheckedSqlIO dbConn createFollowsSession
+  -- runUncheckedSqlIO dbConn createUsersSession
+  -- runUncheckedSqlIO dbConn createArticlesSession
+  -- runUncheckedSqlIO dbConn createTagsSession
+  -- runUncheckedSqlIO dbConn createCommentsSession
+  -- runUncheckedSqlIO dbConn createArticlesTagsSession
+  -- runUncheckedSqlIO dbConn createFollowsSession
 
   -- DB SETUP END --
 
