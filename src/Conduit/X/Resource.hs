@@ -78,7 +78,10 @@ instance ToHtml Navbar where
                     i_ [class_ "ion-gear-a"] ""
                     "Settings"
               li_ [class_ "nav-item"] $
-                a_ [class_ "nav-link", href_ . toUrl . profileLink $ "@" <> username] $ do
+                a_
+                  [ class_ "nav-link"
+                  , href_ . toUrl . profileLink $ "@" <> username
+                  ] $ do
                   img_ [class_ "user-pic", src_ imageUrl]
                   toHtml $ " " <> username <> " "
   toHtmlRaw = toHtml
@@ -128,8 +131,8 @@ instance ToHtml a => ToHtml (Partial a) where
 data Feed
   = Feed
       Bool -- is personal for user profile?
-      [(Text, Text, Bool)] -- Feed nav pill name, link and whether or not it's active or disabled
-      [(Model.User, Model.Article, [Model.Tag])] -- List of author article tags tuple
+      [(Text, Link, Bool)] -- Feed nav pill name, link and whether or not it's active or disabled
+      [Model.ArticleInfo] -- List of author, article, tags tuple
 
 instance ToHtml Feed where
   toHtml (Feed isProfile pills articles) = do
@@ -137,9 +140,9 @@ instance ToHtml Feed where
       ul_ [class_ "nav nav-pills outline-active"] $ do
         forM_ pills $ \(name, link, isActive) -> do
           li_ [class_ "nav-item"] $
-            a_ [class_ $ "nav-link " <> if isActive then "active" else "disabled", href_ link] $ toHtml name
+            a_ [class_ $ "nav-link " <> if isActive then "active" else "", hxGetSafe_ link, hxTarget_ "#feed"] $ toHtml name
     -- ARTICLES START
-    forM_ articles $ \(Model.User{..}, Model.Article{..}, tags) ->
+    forM_ articles $ \(Model.Article{..}, Model.User{..}, tags) ->
       div_ [class_ "article-preview"] $ do
         div_ [class_ "article-meta"] $ do
           a_ [href_ . toUrl . profileLink $ "@" <> userUsername] $ img_ [src_ userImageUrl]
@@ -184,13 +187,13 @@ instance ToHtml Home where
       div_ [class_ "container page"] $
         div_ [class_ "row"] $ do
           -- FEED
-          div_ [id_ "feeds", class_ "col-md-9"] $
+          div_ [id_ "feed", class_ "col-md-9"] $
             toHtml $ case mbUser of
-              Nothing -> Feed False [("Global Feed", "", True)] []
-              Just _ ->
+              Nothing -> Feed False [("Global Feed", globalFeedLink, True)] []
+              Just Model.User{..} ->
                 Feed
                   False
-                  [("Your Feed", "", True), ("Global Feed", "", False)]
+                  [("Your Feed", authorFeedLink userID, True), ("Global Feed", globalFeedLink, False)]
                   []
 
           -- TAGS
@@ -300,7 +303,7 @@ instance ToHtml Profile where
             else toHtml $ FollowButton $ Model.userUsername otherUser
     where
       profileTemplate :: Monad m => Model.User -> HtmlT m () -> HtmlT m ()
-      profileTemplate (Model.User bio email _ imageUrl username) action =
+      profileTemplate (Model.User bio email userID imageUrl username) action =
         div_ [class_ "profile-page"] $ do
           div_ [class_ "user-info"] $
             div_ [class_ "container"] $
@@ -313,8 +316,8 @@ instance ToHtml Profile where
 
           div_ [class_ "container"] $
             div_ [class_ "row"] $
-              div_ [class_ "col-xs-12 col-md-10 offset-md-1"] $ do
-                toHtml $ Feed True [("My Articles", "", True), ("Favorited Articles", "", False)] []
+              div_ [id_ "feed", class_ "col-xs-12 col-md-10 offset-md-1"] $ do
+                toHtml $ Feed True [("My Articles", authorFeedLink userID, True), ("Favorited Articles", favoritesFeedLink userID, False)] []
   toHtmlRaw = toHtml
 
 data Settings = Settings Model.User
@@ -530,11 +533,23 @@ type SignInFormSubmitRoute =
     :> ReqBody '[FormUrlEncoded] Model.SignInForm
     :> Post '[HTML] (Headers '[HXPush, Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] SignInResponse)
 
+type GlobalFeedRoute = "global" :> Get '[HTML] Feed
+
+type TagFeedRoute = "feed" :> Capture "tag" Text :> Get '[HTML] Feed
+
+type AuthorFeedRoute = "author" :> Capture "author" (Model.ID Model.User) :> Get '[HTML] Feed
+
+type FavoritesFeedRoute = "favorites" :> Capture "user" (Model.ID Model.User) :> Get '[HTML] Feed
+
 type UnprotectedRoutes =
   SignUpFormRoute
     :<|> SignInFormRoute
     :<|> SignUpFormSubmitRoute
     :<|> SignInFormSubmitRoute
+    :<|> GlobalFeedRoute
+    :<|> TagFeedRoute
+    :<|> AuthorFeedRoute
+    :<|> FavoritesFeedRoute
 
 -- TODO: REMOVE PARTIALS WHERE POSSIBLE
 
@@ -560,6 +575,10 @@ type ProtectedRoutes =
     :<|> SettingsRoute
     :<|> ProfileRoute
     :<|> LogoutRoute
+    :<|> GlobalFeedRoute
+    :<|> TagFeedRoute
+    :<|> AuthorFeedRoute
+    :<|> FavoritesFeedRoute
 
 type Routes =
   (Auth '[Cookie] Model.User :> ProtectedRoutes)
@@ -590,6 +609,18 @@ signUpFormLink = getLink $ proxy @SignUpFormRoute
 
 signUpFormSubmitLink :: Link
 signUpFormSubmitLink = getLink $ proxy @SignUpFormSubmitRoute
+
+globalFeedLink :: Link
+globalFeedLink = getLink $ proxy @GlobalFeedRoute
+
+tagFeedLink :: Text -> Link
+tagFeedLink = getLink $ proxy @TagFeedRoute
+
+authorFeedLink :: (Model.ID Model.User) -> Link
+authorFeedLink = getLink $ proxy @AuthorFeedRoute
+
+favoritesFeedLink :: (Model.ID Model.User) -> Link
+favoritesFeedLink = getLink $ proxy @FavoritesFeedRoute
 
 homeLink :: Link
 homeLink = getLink $ proxy @(Auth '[Cookie] Model.User :> HomeRoute)

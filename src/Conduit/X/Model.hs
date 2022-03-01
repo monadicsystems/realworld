@@ -9,10 +9,20 @@ import Data.Int (Int32)
 import Data.Text
 import Data.Time
 import GHC.Generics
+import Servant.API
 import Servant.Auth.JWT (FromJWT, ToJWT)
 import Web.FormUrlEncoded (FromForm)
 
-newtype ID a = ID {unID :: Int32} deriving (Eq, Show, Generic, FromJSON, ToJSON)
+newtype ID a = ID {unID :: Int32}
+  deriving
+    ( Eq
+    , Show
+    , Generic
+    , FromJSON
+    , ToJSON
+    , ToHttpApiData
+    , FromHttpApiData
+    )
 
 -- CORE MODELS START --
 
@@ -30,7 +40,7 @@ data Article = Article
     articleBody :: Text,
     articleCreatedAt :: UTCTime,
     articleDescription :: Text,
-    articleFavorites :: Int32,
+    articleFavorites :: Int32, -- Remove Favorites
     articleID :: ID Article,
     articleTitle :: Text
   }
@@ -51,6 +61,12 @@ data Comment = Comment
   deriving (Eq, Show)
 
 data Follow = (ID User) :-> (ID User)
+
+type ArticleInfo =
+  ( Article
+  , User
+  , [Tag]
+  )
 
 -- CORE MODELS END --
 

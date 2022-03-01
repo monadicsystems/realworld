@@ -8,8 +8,10 @@ module Conduit.Database where
 import Conduit.App
 import Conduit.Model
 import Conduit.Model (SignUpForm (SignUpForm))
+import Control.Monad (forM)
 import Control.Monad.IO.Class (liftIO)
 import Data.Bifunctor (bimap)
+import Data.Either (rights)
 import Data.Function ((&))
 import Data.Int
 -- import qualified Data.Sequence.Internal.Sorting as Text
@@ -17,7 +19,7 @@ import Data.Profunctor (dimap)
 import Data.Text
 import Data.Time
 import Data.Vector (Vector)
-import Data.Vector as Vector
+import qualified Data.Vector as Vector
 import Hasql.Connection (Connection)
 import Hasql.Session (Session, QueryError)
 import qualified Hasql.Session as Session
@@ -95,7 +97,7 @@ tupleToArticleTagsVectors (ID articleID, commaSepTags) =
     | tag <- Prelude.map strip $ split (',' ==) commaSepTags
   ]
     & Prelude.unzip
-    & bimap fromList fromList
+    & bimap Vector.fromList Vector.fromList
 
 followToTuple :: Follow -> (Int32, Int32)
 followToTuple ((ID followerID) :-> (ID followeeID)) =
@@ -111,7 +113,7 @@ tupleToFollow (followerID, followeeID) = ID followerID :-> ID followeeID
 dropUsersSession :: Session ()
 dropUsersSession =
   Session.sql
-    [TH.uncheckedSql| drop table if exists users |]
+    [TH.uncheckedSql| drop table if exists users cascade |]
 
 createUsersSession :: Session ()
 createUsersSession =
@@ -181,7 +183,7 @@ verifyUserStatement =
 dropArticlesSession :: Session ()
 dropArticlesSession =
   Session.sql
-    [TH.uncheckedSql| drop table if exists articles |]
+    [TH.uncheckedSql| drop table if exists articles cascade |]
 
 createArticlesSession :: Session ()
 createArticlesSession =
@@ -239,7 +241,7 @@ deleteArticleStatement =
 dropCommentsSession :: Session ()
 dropCommentsSession =
   Session.sql
-    [TH.uncheckedSql| drop table if exists comments |]
+    [TH.uncheckedSql| drop table if exists comments cascade |]
 
 createCommentsSession :: Session ()
 createCommentsSession =
@@ -281,21 +283,21 @@ deleteCommentStatement =
 dropTagsSession :: Session ()
 dropTagsSession =
   Session.sql
-    [TH.uncheckedSql| drop table if exists tags |]
+    [TH.uncheckedSql| drop table if exists tags cascade |]
 
 createTagsSession :: Session ()
 createTagsSession =
   Session.sql
     [TH.uncheckedSql|
-        create table if not exists tags (
-            pk_tag text primary key
-        );
+      create table if not exists tags (
+        pk_tag text primary key
+      );
     |]
 
 insertTagsStatement :: Statement Text ()
 insertTagsStatement =
   dimap
-    (fromList . Prelude.map strip . split (',' ==))
+    (Vector.fromList . Prelude.map strip . split (',' ==))
     id
     [TH.resultlessStatement|
       insert into tags (pk_tag)
@@ -309,13 +311,13 @@ insertTagsStatement =
 dropArticlesTagsSession :: Session ()
 dropArticlesTagsSession =
   Session.sql
-    [TH.uncheckedSql| drop table if exists articles_tags |]
+    [TH.uncheckedSql| drop table if exists article_tags cascade |]
 
 createArticlesTagsSession :: Session ()
 createArticlesTagsSession =
   Session.sql
     [TH.uncheckedSql|
-      create table if not exists articles_tags (
+      create table if not exists article_tags (
         fk_article serial references articles(pk_article) on delete cascade,
         fk_tag text references tags(pk_tag) on delete cascade,
         constraint pk_articles_tags primary key (fk_article, fk_tag)
@@ -328,7 +330,7 @@ insertArticleTagsStatement =
     tupleToArticleTagsVectors
     id
     [TH.resultlessStatement|
-      insert into articles_tags (fk_article, fk_tag)
+      insert into article_tags (fk_article, fk_tag)
       select * from unnest ($1 :: int4[], $2 :: text[])
     |]
 
@@ -339,7 +341,7 @@ insertArticleTagsStatement =
 dropFollowsSession :: Session ()
 dropFollowsSession =
   Session.sql
-    [TH.uncheckedSql| drop table if exists follows |]
+    [TH.uncheckedSql| drop table if exists follows cascade |]
 
 createFollowsSession :: Session ()
 createFollowsSession =
@@ -365,6 +367,7 @@ insertFollowStatement =
 
 -- FOLLOWS END --
 
+-- TODO: DO I NEED?
 getUserByUsernameStatement :: Statement Text User
 getUserByUsernameStatement =
   dimap
@@ -388,6 +391,91 @@ doesFollowExistStatment =
     id
     [TH.singletonStatement|
       select exists (select * from follows where fk_follower = $1 :: int4 and fk_followee = $2 :: int4) :: bool
+    |]
+
+getTagsByArticleIDStatement :: Statement (ID Article) [Tag]
+getTagsByArticleIDStatement =
+  dimap
+    unID
+    (Vector.toList . fmap Tag)
+    [TH.vectorStatement|
+      select
+        fk_tag :: text
+      from article_tags at
+      where at.fk_article = $1 :: int4
+    |]
+
+getUserByUserIDStatement :: Statement (ID User) User
+getUserByUserIDStatement =
+  dimap
+    unID
+    tupleToUser
+    [TH.singletonStatement|
+      select
+        pk_user :: int4,
+        username :: text,
+        email :: text,
+        imageUrl :: text,
+        bio :: text
+      from users
+      where pk_user = $1 :: int4
+    |]
+
+getAllArticlesStatement :: Statement () [Article]
+getAllArticlesStatement =
+  dimap
+    id
+    (Vector.toList . fmap tupleToArticle)
+    [TH.vectorStatement|
+      select
+        pk_article :: int4,
+        fk_user :: int4,
+        title :: text,
+        description :: text,
+        body :: text,
+        favorites :: int4,
+        created_at :: timestamptz
+      from articles
+      order by "created_at"
+    |]
+
+getArticlesByTagStatement :: Statement Tag [Article]
+getArticlesByTagStatement =
+  dimap
+    unTag
+    (Vector.toList . fmap tupleToArticle)
+    [TH.vectorStatement|
+      select
+        pk_article :: int4,
+        fk_user :: int4,
+        title :: text,
+        description :: text,
+        body :: text,
+        favorites :: int4,
+        created_at :: timestamptz
+      from articles
+      inner join article_tags on fk_tag = $1 :: text
+      where pk_article = fk_article
+      order by "created_at"
+    |]
+
+getArticlesByUserIDStatement :: Statement (ID User) [Article]
+getArticlesByUserIDStatement =
+  dimap
+    unID
+    (Vector.toList . fmap tupleToArticle)
+    [TH.vectorStatement|
+      select
+        pk_article :: int4,
+        fk_user :: int4,
+        title :: text,
+        description :: text,
+        body :: text,
+        favorites :: int4,
+        created_at :: timestamptz
+      from articles
+      where fk_user = $1 :: int4
+      order by "created_at"
     |]
 
 -- EXECUTION HELPERS START --
@@ -423,6 +511,27 @@ getUserByUsername = runStatement getUserByUsernameStatement
 
 doesFollowExist :: User -> User -> App (Either QueryError Bool)
 doesFollowExist user1 user2 = runStatement doesFollowExistStatment (unID $ userID user1, unID $ userID user2)
+
+getAllArticles :: App (Either QueryError [Article])
+getAllArticles = runStatement getAllArticlesStatement ()
+
+getArticlesByTag :: Tag -> App (Either QueryError [Article])
+getArticlesByTag = runStatement getArticlesByTagStatement
+
+getArticlesByUserID :: ID User -> App (Either QueryError [Article])
+getArticlesByUserID = runStatement getArticlesByUserIDStatement
+
+getArticleInfos :: [Article] -> App [ArticleInfo]
+getArticleInfos articles = rights <$> do
+  forM articles $ \article@Article{..} -> do
+    authorResult <- runStatement getUserByUserIDStatement articleAuthorID
+    case authorResult of
+      Left err' -> pure $ Left err'
+      Right author -> do
+        tagsResult <- runStatement getTagsByArticleIDStatement articleID
+        case tagsResult of
+          Left err'' -> pure $ Left err''
+          Right tags -> pure $ Right (article, author, tags)
 
 -- EXECUTION END --
 

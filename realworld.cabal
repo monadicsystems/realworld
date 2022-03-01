@@ -28,9 +28,11 @@ library
       Conduit
       Conduit.App
       Conduit.Database
+      Conduit.Editor
       Conduit.Model
       Conduit.Resource
       Conduit.Server
+      Conduit.Settings
       Conduit.Validate
   other-modules:
       Paths_realworld

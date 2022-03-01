@@ -41,6 +41,10 @@ unprotectedServer cookieSettings jwtSettings =
     :<|> signInFormHandler
     :<|> authorizeSignUp cookieSettings jwtSettings
     :<|> authorizeSignIn cookieSettings jwtSettings
+    :<|> globalFeedHandler
+    :<|> tagFeedHandler
+    :<|> authorFeedHandler
+    :<|> favoritesFeedHandler
   where
     signUpFormHandler :: Maybe Text -> App (Resource.Partial Resource.SignUpForm)
     signUpFormHandler hxReq = pure $ case hxReq of
@@ -84,18 +88,22 @@ unprotectedServer cookieSettings jwtSettings =
             -- If valid form, write user to DB and return creds
             -- TODO: Write user info to DB and getCreds
             result <- insertUser signUpForm
+            liftIO $ print result
             case result of
-              Left err ->
-                SignUpFailure signUpForm [pack $ show err]
-                  & noHeader
-                  & noHeader
-                  & noHeader
-                  & pure
+              Left err -> do
+                liftIO $ print err
+                let response = SignUpFailure signUpForm [pack $ show err]
+                      & noHeader
+                      & noHeader
+                      & noHeader
+                pure response
               Right user -> do
+                liftIO $ print "Sign up success"
                 mApplyCookies <- liftIO $ acceptLogin cookieSettings jwtSettings user
                 case mApplyCookies of
                   Nothing -> throwError err401
-                  Just applyCookies ->
+                  Just applyCookies -> do
+                    liftIO $ print "cookies applied"
                     Resource.SignUpSuccess user
                       & applyCookies
                       & addHeader (toUrl homeLink)
@@ -135,12 +143,13 @@ unprotectedServer cookieSettings jwtSettings =
             -- TODO: Fetch user info from DB and getCreds
             result <- verifyUser signInForm
             case result of
-              Left _ ->
-                SignInFailure signInForm ["Incorrect username or password"]
-                  & noHeader
-                  & noHeader
-                  & noHeader
-                  & pure
+              Left err -> do
+                liftIO $ print err
+                let response = SignInFailure signInForm ["Incorrect username or password"]
+                      & noHeader
+                      & noHeader
+                      & noHeader
+                pure response
               Right user -> do
                 mApplyCookies <- liftIO $ acceptLogin cookieSettings jwtSettings user
                 case mApplyCookies of
@@ -149,6 +158,49 @@ unprotectedServer cookieSettings jwtSettings =
                     applyCookies (Resource.SignInSuccess user)
                       & addHeader (toUrl homeLink)
                       & pure
+
+    globalFeedHandler :: App Feed
+    globalFeedHandler = do
+      articlesResult <- getAllArticles
+      case articlesResult of
+        Left queryErr -> throwError err401
+        Right articles -> do
+          articleInfos <- getArticleInfos articles
+          pure $ Feed
+            False
+            [("Global Feed", globalFeedLink, True)]
+            articleInfos
+
+    tagFeedHandler :: Text -> App Feed
+    tagFeedHandler tag = do
+      articlesResult <- getArticlesByTag $ Model.Tag tag
+      case articlesResult of
+        Left queryErr -> throwError err401
+        Right articles -> do
+          articleInfos <- getArticleInfos articles
+          pure $ Feed
+            False
+            [ ("Global Feed", globalFeedLink, False)
+            , ("# " <> tag, tagFeedLink tag, True)
+            ]
+            articleInfos
+
+    authorFeedHandler :: Model.ID Model.User -> App Feed
+    authorFeedHandler userID = do
+      articlesResult <- getArticlesByUserID $ userID
+      case articlesResult of
+        Left queryErr -> throwError err401
+        Right articles -> do
+          articleInfos <- getArticleInfos articles
+          pure $ Feed
+            True
+            [ ("My Articles", authorFeedLink userID, True)
+            , ("Favorited Articles", favoritesFeedLink userID, True)
+            ]
+            articleInfos
+
+    favoritesFeedHandler :: Model.ID Model.User -> App Feed
+    favoritesFeedHandler = undefined
 
 protectedServer :: AuthResult Model.User -> ServerT ProtectedRoutes App
 protectedServer (Authenticated user) = authHandler user -- if authenticated go to authed routes
@@ -163,6 +215,10 @@ authHandler user =
     :<|> settingsHandler
     :<|> profileHandler
     :<|> logoutHandler
+    :<|> globalFeedHandler
+    :<|> tagFeedHandler
+    :<|> authorFeedHandler
+    :<|> favoritesFeedHandler
   where
     homeHandler :: Maybe Text -> App (Partial Home)
     homeHandler hxReq =
@@ -218,6 +274,18 @@ authHandler user =
       & addHeader (toUrl homeLink)
       & pure
 
+    globalFeedHandler :: App Feed
+    globalFeedHandler = undefined
+    
+    tagFeedHandler :: Text -> App Feed
+    tagFeedHandler = undefined
+    
+    authorFeedHandler :: Model.ID Model.User -> App Feed
+    authorFeedHandler = undefined
+    
+    favoritesFeedHandler :: Model.ID Model.User -> App Feed
+    favoritesFeedHandler = undefined
+
 redirectFor :: forall a. App a
 redirectFor = throwError $ err303
   { errHeaders = [("Location", encodeUtf8 $ toUrl signUpFormLink)]
@@ -232,6 +300,10 @@ noAuthHandler =
     :<|> (\_ -> redirectFor @(Partial Settings))
     :<|> profileHandler
     :<|> redirectFor @(Headers '[HXPush, Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] SignOutResponse)
+    :<|> globalFeedHandler
+    :<|> tagFeedHandler
+    :<|> authorFeedHandler
+    :<|> favoritesFeedHandler
   where
     homeHandler :: Maybe Text -> App (Partial Home)
     homeHandler hxReq = case hxReq of
@@ -248,6 +320,18 @@ noAuthHandler =
           case hxReq of
             Just "true" -> pure $ View.NotWrapped $ View.PublicProfile user False
             _ -> pure $ View.Wrapped Nothing $ View.PublicProfile user False
+
+    globalFeedHandler :: App Feed
+    globalFeedHandler = undefined
+    
+    tagFeedHandler :: Text -> App Feed
+    tagFeedHandler = undefined
+    
+    authorFeedHandler :: Model.ID Model.User -> App Feed
+    authorFeedHandler = undefined
+    
+    favoritesFeedHandler :: Model.ID Model.User -> App Feed
+    favoritesFeedHandler = undefined
 
 server :: CookieSettings -> JWTSettings -> Server Routes
 server cookieSettings jwtSettings = protectedServer :<|> unprotectedServer cookieSettings jwtSettings
@@ -290,20 +374,20 @@ runApp port = do
 
   -- DB SETUP START --
   -- DROP TABLES IF THEY EXIST
-  -- runUncheckedSqlIO dbConn dropCommentsSession
-  -- runUncheckedSqlIO dbConn dropArticlesTagsSession
-  -- runUncheckedSqlIO dbConn dropArticlesSession
-  -- runUncheckedSqlIO dbConn dropFollowsSession
-  -- runUncheckedSqlIO dbConn dropUsersSession
-  -- runUncheckedSqlIO dbConn dropTagsSession
+  runUncheckedSqlIO dbConn dropUsersSession
+  runUncheckedSqlIO dbConn dropArticlesSession
+  runUncheckedSqlIO dbConn dropCommentsSession
+  runUncheckedSqlIO dbConn dropTagsSession
+  runUncheckedSqlIO dbConn dropArticlesTagsSession
+  runUncheckedSqlIO dbConn dropFollowsSession
 
   -- CREATE TABLES
-  -- runUncheckedSqlIO dbConn createUsersSession
-  -- runUncheckedSqlIO dbConn createArticlesSession
-  -- runUncheckedSqlIO dbConn createTagsSession
-  -- runUncheckedSqlIO dbConn createCommentsSession
-  -- runUncheckedSqlIO dbConn createArticlesTagsSession
-  -- runUncheckedSqlIO dbConn createFollowsSession
+  runUncheckedSqlIO dbConn createUsersSession
+  runUncheckedSqlIO dbConn createArticlesSession
+  runUncheckedSqlIO dbConn createTagsSession
+  runUncheckedSqlIO dbConn createCommentsSession
+  runUncheckedSqlIO dbConn createArticlesTagsSession
+  runUncheckedSqlIO dbConn createFollowsSession
 
   -- DB SETUP END --
 
