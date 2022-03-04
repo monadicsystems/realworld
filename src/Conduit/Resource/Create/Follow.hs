@@ -1,0 +1,1 @@
+module Conduit.Resource.Follow where
