@@ -10,7 +10,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Conduit.Resource.Read.Home where
+module Conduit.Resource.Get.Home where
 
 import Conduit.App
 import Conduit.Core
@@ -32,7 +32,7 @@ import Servant.Htmx
 import Servant.Links
 import Servant.Server
 
-type Route = MakeRoute Get (Auth '[Cookie] Model.User :> HXRequest) (Template.Partial View)
+type Route = Auth '[Cookie] Model.User :> HXRequest :> Get '[HTML] (Template.Partial View)
 
 data View = View (Maybe Model.User)
 

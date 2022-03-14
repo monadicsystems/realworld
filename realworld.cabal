@@ -26,6 +26,33 @@ source-repository head
 library
   exposed-modules:
       Conduit
+      Conduit.App
+      Conduit.Core
+      Conduit.Database
+      Conduit.Link
+      Conduit.Model
+      Conduit.Resource.Auth
+      Conduit.Resource.Delete.Article
+      Conduit.Resource.Delete.Comment
+      Conduit.Resource.Delete.Follow
+      Conduit.Resource.Get.Article
+      Conduit.Resource.Get.AuthorFeed
+      Conduit.Resource.Get.Editor
+      Conduit.Resource.Get.FavoriteFeed
+      Conduit.Resource.Get.GlobalFeed
+      Conduit.Resource.Get.Home
+      Conduit.Resource.Get.Login
+      Conduit.Resource.Get.Profile
+      Conduit.Resource.Get.Register
+      Conduit.Resource.Get.Settings
+      Conduit.Resource.Get.TagFeed
+      Conduit.Resource.Patch.Article
+      Conduit.Resource.Patch.User
+      Conduit.Resource.Post.Article
+      Conduit.Resource.Post.Comment
+      Conduit.Resource.Post.Follow
+      Conduit.Resource.Post.User
+      Conduit.Template
   other-modules:
       Paths_realworld
   hs-source-dirs:

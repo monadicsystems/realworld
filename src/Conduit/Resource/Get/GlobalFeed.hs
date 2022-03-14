@@ -10,13 +10,14 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Conduit.Resource.FavoriteFeed where
+module Conduit.Resource.Get.GlobalFeed where
 
 import Conduit.App
 import Conduit.Core
 import Conduit.Link
 import qualified Conduit.Model as Model
 import qualified Conduit.Template as Template
+import qualified Conduit.Database as Database
 import Control.Monad (forM_)
 import Data.Proxy
 import Data.Text
@@ -32,7 +33,16 @@ import Servant.Htmx
 import Servant.Links
 import Servant.Server
 
-type Route = MakeRoute Get ("feed" :> "favorite" :> Capture "user" (Model.ID Model.User)) Template.Feed
+type Route = "feed" :> "global" :> Get '[HTML] Template.Feed
 
-handler :: Model.ID Model.User -> App Template.Feed
-handler = undefined
+handler :: App Template.Feed
+handler = do
+  articlesResult <- Database.getAllArticles
+  case articlesResult of
+    Left queryErr -> throwError err401
+    Right articles -> do
+      articleInfos <- Database.getArticleInfos articles
+      pure $ Template.Feed
+        False
+        [("Global Feed", globalFeedLink, True)]
+        articleInfos

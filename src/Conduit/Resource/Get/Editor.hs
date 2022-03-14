@@ -12,9 +12,14 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Conduit.Resource.Get.Form.Article where
+module Conduit.Resource.Get.Editor where
 
+import Conduit.App
+import Conduit.Core
+import Conduit.Link
 import qualified Conduit.Model as Model
+import qualified Conduit.Template as Template
+import qualified Conduit.Database as Database
 import Control.Monad (forM_)
 import Data.Proxy
 import Data.Text
@@ -30,10 +35,12 @@ import Servant.Htmx
 import Servant.Links
 import Servant.Server
 
-data Editor = Editor
+type Route = "editor" :> Auth '[Cookie] Model.User :> HXRequest :> Get '[HTML] (Template.Partial View)
 
-instance ToHtml Editor where
-  toHtml Editor =
+data View = View
+
+instance ToHtml View where
+  toHtml _ =
     div_ [class_ "editor-page"] $
       div_ [class_ "container page"] $
         div_ [class_ "row"] $
@@ -49,3 +56,12 @@ instance ToHtml Editor where
                 button_ [class_ "btn btn-lg pull-xs-right btn-primary", type_ "button"] "Publish Article"
   toHtmlRaw = toHtml
 
+handler :: AuthResult Model.User -> Maybe Text -> App (Template.Partial View)
+handler (Authenticated user) hxReq =
+  case hxReq of
+    Just "true" -> pure $ Template.NotWrapped View
+    _ -> pure $ Template.Wrapped (Just user) View
+handler _ hxReq =
+  case hxReq of
+    Just "true" -> pure $ Template.NotWrapped View
+    _ -> pure $ Template.Wrapped Nothing View

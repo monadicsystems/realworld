@@ -10,11 +10,12 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Conduit.Resource.TagFeed where
+module Conduit.Resource.Get.AuthorFeed where
 
 import Conduit.App
 import Conduit.Core
 import Conduit.Link
+import qualified Conduit.Database as Database
 import qualified Conduit.Model as Model
 import qualified Conduit.Template as Template
 import Control.Monad (forM_)
@@ -32,18 +33,19 @@ import Servant.Htmx
 import Servant.Links
 import Servant.Server
 
-type Route = MakeRoute Get ("feed" :> "tag" :> Capture "tag" Tag) Template.Feed
+type Route = "feed" :> "author" :> Capture "author" (Model.ID Model.User) :> Get '[HTML] Template.Feed
 
-handler :: Tag -> App Feed
-handler tag = do
-  articlesResult <- getArticlesByTag tag
+handler :: Model.ID Model.User -> App Template.Feed
+handler userID = do
+  articlesResult <- Database.getArticlesByUserID userID
   case articlesResult of
     Left queryErr -> throwError err401
     Right articles -> do
-      articleInfos <- getArticleInfos articles
-      pure $ Feed
-        False
-        [ ("Global Feed", globalFeedLink, False)
-        , ("# " <> tag, tagFeedLink tag, True)
-        ]
-        articleInfos
+      articleInfos <- Database.getArticleInfos articles
+      pure $
+        Template.Feed
+          True
+          [ ("My Articles", authorFeedLink userID, True),
+            ("Favorited Articles", favoriteFeedLink userID, True)
+          ]
+          articleInfos

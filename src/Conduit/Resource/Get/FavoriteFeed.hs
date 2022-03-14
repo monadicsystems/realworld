@@ -10,7 +10,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Conduit.Resource.AuthorFeed where
+module Conduit.Resource.Get.FavoriteFeed where
 
 import Conduit.App
 import Conduit.Core
@@ -32,19 +32,7 @@ import Servant.Htmx
 import Servant.Links
 import Servant.Server
 
-type Route = MakeRoute Get ("feed" :> "author" :> Capture "author" (Model.ID Model.User)) Template.Feed
+type Route = "feed" :> "favorite" :> Capture "user" (Model.ID Model.User) :> Get '[HTML] Template.Feed
 
 handler :: Model.ID Model.User -> App Template.Feed
-handler userID = do
-  articlesResult <- getArticlesByUserID userID
-  case articlesResult of
-    Left queryErr -> throwError err401
-    Right articles -> do
-      articleInfos <- getArticleInfos articles
-      pure $
-        Template.Feed
-          True
-          [ ("My Articles", authorFeedLink userID, True),
-            ("Favorited Articles", favoriteFeedLink userID, True)
-          ]
-          articleInfos
+handler = undefined

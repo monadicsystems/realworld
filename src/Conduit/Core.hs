@@ -17,21 +17,21 @@
 
 module Conduit.Core where
 
-import Conduit.App
-import Control.Monad (forM_)
+-- import Conduit.App
+-- import Control.Monad (forM_)
 import Data.Proxy
 import Data.Text
-import Lucid
-import Lucid.Htmx
-import Lucid.Htmx.Servant
-import Lucid.Hyperscript (useHyperscript, __, _hs)
+-- import Lucid
+-- import Lucid.Htmx
+-- import Lucid.Htmx.Servant
+-- import Lucid.Hyperscript (useHyperscript, __, _hs)
 import Servant
-import Servant.Auth
-import Servant.Auth.Server
+-- import Servant.Auth
+-- import Servant.Auth.Server
 import Servant.HTML.Lucid (HTML)
-import Servant.Htmx
-import Servant.Links
-import Servant.Server
+-- import Servant.Htmx
+-- import Servant.Links
+-- import Servant.Server
 
 type MakeRoute method path resource = path :> method '[HTML] resource
 

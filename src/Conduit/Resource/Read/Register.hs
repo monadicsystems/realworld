@@ -1,1 +1,0 @@
-module Conduit.Resource.Register where

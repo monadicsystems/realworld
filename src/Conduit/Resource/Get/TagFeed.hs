@@ -10,13 +10,14 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Conduit.Resource.GlobalFeed where
+module Conduit.Resource.Get.TagFeed where
 
 import Conduit.App
 import Conduit.Core
 import Conduit.Link
 import qualified Conduit.Model as Model
 import qualified Conduit.Template as Template
+import qualified Conduit.Database as Database
 import Control.Monad (forM_)
 import Data.Proxy
 import Data.Text
@@ -32,16 +33,18 @@ import Servant.Htmx
 import Servant.Links
 import Servant.Server
 
-type Route = MakeRoute Get ("feed" :> "global") Template.Feed
+type Route = "feed" :> "tag" :> Capture "tag" Model.Tag :> Get '[HTML] Template.Feed
 
-handler :: App Template.Feed
-handler = do
-  articlesResult <- getAllArticles
+handler :: Model.Tag -> App Template.Feed
+handler tag = do
+  articlesResult <- Database.getArticlesByTag tag
   case articlesResult of
     Left queryErr -> throwError err401
     Right articles -> do
-      articleInfos <- getArticleInfos articles
-      pure $ Feed
+      articleInfos <- Database.getArticleInfos articles
+      pure $ Template.Feed
         False
-        [("Global Feed", globalFeedLink, True)]
+        [ ("Global Feed", globalFeedLink, False)
+        , ("# " <> Model.unTag tag, tagFeedLink tag, True)
+        ]
         articleInfos

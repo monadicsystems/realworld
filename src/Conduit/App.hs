@@ -12,7 +12,6 @@ import Control.Monad.Error
 import Control.Monad.Reader
 import Hasql.Connection (Connection)
 import Servant.Server
-import Servant.Server.Generic (AsServerT)
 
 data AppConfig = AppConfig
     { appConfigDBConnection :: Connection

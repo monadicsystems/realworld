@@ -12,14 +12,18 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Conduit.Resource.Settings where
+module Conduit.Resource.Get.Settings where
 
+import Conduit.App
+import Conduit.Core
+import Conduit.Link
 import qualified Conduit.Model as Model
 import qualified Conduit.Template as Template
 
 import Control.Monad (forM_)
 import Data.Proxy
 import Data.Text
+import Data.Text.Encoding
 import Lucid
 import Lucid.Htmx
 import Lucid.Htmx.Servant
@@ -32,14 +36,8 @@ import Servant.Htmx
 import Servant.Links
 import Servant.Server
 
--- | Route
-type Route = Auth '[Cookie] Model.User :> HXRequest :> Get '[HTML] (Partial View)
+type Route = Auth '[Cookie] Model.User :> HXRequest :> Get '[HTML] (Template.Partial View)
 
--- | Link
-link :: Link
-link = getLink $ proxy @Route
-
--- | View
 data View = View Model.User
 
 instance ToHtml View where
@@ -87,17 +85,16 @@ instance ToHtml View where
                     ]
                 button_ [class_ "btn btn-lg btn-primary pull-xs-right"] "Update Settings"
               hr_ []
-              button_ [class_ "btn btn-outline-danger", hxPostSafe_ logoutLink, hxTarget_ "#content-slot"] $ "Or click here to logout."
+              button_ [class_ "btn btn-outline-danger", hxPost_ logoutLink, hxTarget_ "#content-slot"] $ "Or click here to logout."
   toHtmlRaw = toHtml
 
 -- | Handler
-handler :: AuthResult Model.User -> Maybe Text -> App (Partial View)
+handler :: AuthResult Model.User -> Maybe Text -> App (Template.Partial View)
 handler (Authenticated user) hxReq =
     case hxReq of
-        Just "true" -> pure $ Template.NotWrapped $ View (Just user)
-        _ -> pure $ Template.Wrapped (Just user) $ View (Just user)
-protectedServer authErr _ = do
-    print authErr
+        Just "true" -> pure $ Template.NotWrapped $ View user
+        _ -> pure $ Template.Wrapped (Just user) $ View user
+handler _ _ = do
     throwError $ err303
-        { errHeaders = [("Location", encodeUtf8 $ toUrl signUpFormLink)]
-        }
+      { errHeaders = [("Location", encodeUtf8 registerFormLink)]
+      }

@@ -72,14 +72,14 @@ type ArticleInfo =
 
 -- FORM MODELS START --
 
-data SignInForm = SignInForm
-  { signInFormEmail :: Text,
-    signInFormPassword :: Text
+data LoginForm = LoginForm
+  { loginFormEmail :: Text,
+    loginFormPassword :: Text
   }
   deriving (FromForm, Generic, Show)
 
-instance ToJSON SignInForm where
-  toJSON (SignInForm email password) =
+instance ToJSON LoginForm where
+  toJSON (LoginForm email password) =
     object
       [ "email" .= email,
         "password" .= password

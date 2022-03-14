@@ -1,2 +1,2 @@
-module Conduit.Resource.Unfollow where
+module Conduit.Resource.Delete.Follow where
 

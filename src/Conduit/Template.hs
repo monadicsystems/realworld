@@ -15,6 +15,7 @@
 module Conduit.Template where
 
 import qualified Conduit.Model as Model
+import Conduit.Link
 import Control.Monad.State
 import Data.Text
 import Lucid
@@ -148,13 +149,13 @@ instance ToHtml Feed where
   -- ARTICLES END
   toHtmlRaw = toHtml
 
-data Tagbar = Tagbar [(Text, Text)] -- name of tag and what it links too, could just be name bcuz same as link
+data Tagbar = Tagbar [Model.Tag] -- name of tag and what it links too, could just be name bcuz same as link
 
 instance ToHtml Tagbar where
   toHtml (Tagbar tags) =
     div_ [class_ "sidebar"] $ do
       p_ "Popular Tags"
       div_ [class_ "tag-list"] $
-        forM_ tags $ \(name, link) ->
-          a_ [href_ link, class_ "tag-pill tag-default"] $ toHtml name
+        forM_ tags $ \tag ->
+          a_ [hxGet_ $ tagFeedLink tag, class_ "tag-pill tag-default"] $ toHtml $ Model.unTag tag
   toHtmlRaw = toHtml

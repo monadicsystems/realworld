@@ -159,10 +159,10 @@ updateUserStatement =
       returning pk_user :: int4, username :: text, email :: text, imageUrl :: text, bio :: text
     |]
 
-verifyUserStatement :: Statement SignInForm User
+verifyUserStatement :: Statement LoginForm User
 verifyUserStatement =
   dimap
-    signInFormPassword
+    loginFormPassword
     tupleToUser
     [TH.singletonStatement|
       select
@@ -502,7 +502,7 @@ runUncheckedSql session = do
 insertUser :: SignUpForm -> App (Either QueryError User)
 insertUser = runStatement insertUserStatement
 
-verifyUser :: SignInForm -> App (Either QueryError User)
+verifyUser :: LoginForm -> App (Either QueryError User)
 verifyUser = runStatement verifyUserStatement
 
 getUserByUsername :: Text -> App (Either QueryError User)

@@ -19,3 +19,21 @@ globalFeedLink = "/feed/global/"
 
 tagFeedLink :: Tag -> Text
 tagFeedLink = ("/feed/tag/" <>) . unTag
+
+settingsLink :: Text
+settingsLink = "/settings"
+
+logoutLink :: Text
+logoutLink = "/logout"
+
+registerFormLink :: Text
+registerFormLink = "/register"
+
+registerLink :: Text
+registerLink = registerFormLink
+
+loginFormLink :: Text
+loginFormLink = "/login"
+
+loginLink :: Text
+loginLink = "/login"
