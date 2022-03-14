@@ -111,7 +111,7 @@ tupleToFollow (followerID, followeeID) = ID followerID :-> ID followeeID
 dropUsersSession :: Session ()
 dropUsersSession =
   Session.sql
-    [TH.uncheckedSql| drop table if exists users |]
+    [TH.uncheckedSql| drop table if exists users cascade |]
 
 createUsersSession :: Session ()
 createUsersSession =
@@ -161,7 +161,7 @@ updateUserStatement =
 verifyUserStatement :: Statement SignInForm User
 verifyUserStatement =
   dimap
-    signInFormPassword
+    signInFormToTuple
     tupleToUser
     [TH.singletonStatement|
       select
@@ -171,8 +171,11 @@ verifyUserStatement =
         imageUrl :: text,
         bio :: text
       from users
-      where hash = crypt($1 :: text, hash)
+      where email = $1 :: text and hash = crypt($2 :: text, hash)
     |]
+  where
+    signInFormToTuple :: SignInForm -> (Text, Text)
+    signInFormToTuple SignInForm{..} = (signInFormEmail, signInFormPassword)
 
 -- USERS END --
 
@@ -181,7 +184,7 @@ verifyUserStatement =
 dropArticlesSession :: Session ()
 dropArticlesSession =
   Session.sql
-    [TH.uncheckedSql| drop table if exists articles |]
+    [TH.uncheckedSql| drop table if exists articles cascade |]
 
 createArticlesSession :: Session ()
 createArticlesSession =
@@ -239,7 +242,7 @@ deleteArticleStatement =
 dropCommentsSession :: Session ()
 dropCommentsSession =
   Session.sql
-    [TH.uncheckedSql| drop table if exists comments |]
+    [TH.uncheckedSql| drop table if exists comments cascade |]
 
 createCommentsSession :: Session ()
 createCommentsSession =
@@ -278,29 +281,29 @@ deleteCommentStatement =
 
 -- TAGS START --
 
-dropTagsSession :: Session ()
-dropTagsSession =
-  Session.sql
-    [TH.uncheckedSql| drop table if exists tags |]
+-- dropTagsSession :: Session ()
+-- dropTagsSession =
+--   Session.sql
+--     [TH.uncheckedSql| drop table if exists tags |]
 
-createTagsSession :: Session ()
-createTagsSession =
-  Session.sql
-    [TH.uncheckedSql|
-        create table if not exists tags (
-            pk_tag text primary key
-        );
-    |]
+-- createTagsSession :: Session ()
+-- createTagsSession =
+--   Session.sql
+--     [TH.uncheckedSql|
+--         create table if not exists tags (
+--             pk_tag text primary key
+--         );
+--     |]
 
-insertTagsStatement :: Statement Text ()
-insertTagsStatement =
-  dimap
-    (fromList . Prelude.map strip . split (',' ==))
-    id
-    [TH.resultlessStatement|
-      insert into tags (pk_tag)
-      select * from unnest ($1 :: text[])
-    |]
+-- insertTagsStatement :: Statement Text ()
+-- insertTagsStatement =
+--   dimap
+--     (fromList . Prelude.map strip . split (',' ==))
+--     id
+--     [TH.resultlessStatement|
+--       insert into tags (pk_tag)
+--       select * from unnest ($1 :: text[])
+--     |]
 
 -- TAGS END --
 
@@ -317,8 +320,8 @@ createArticlesTagsSession =
     [TH.uncheckedSql|
       create table if not exists articles_tags (
         fk_article serial references articles(pk_article) on delete cascade,
-        fk_tag text references tags(pk_tag) on delete cascade,
-        constraint pk_articles_tags primary key (fk_article, fk_tag)
+        tag text,
+        constraint pk_articles_tags primary key (fk_article, tag)
       );
     |]
 
@@ -328,7 +331,7 @@ insertArticleTagsStatement =
     tupleToArticleTagsVectors
     id
     [TH.resultlessStatement|
-      insert into articles_tags (fk_article, fk_tag)
+      insert into articles_tags (fk_article, tag)
       select * from unnest ($1 :: int4[], $2 :: text[])
     |]
 

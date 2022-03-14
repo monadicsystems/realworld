@@ -135,8 +135,8 @@ unprotectedServer cookieSettings jwtSettings =
             -- TODO: Fetch user info from DB and getCreds
             result <- verifyUser signInForm
             case result of
-              Left _ ->
-                SignInFailure signInForm ["Incorrect username or password"]
+              Left err ->
+                SignInFailure signInForm [pack . show $ err]
                   & noHeader
                   & noHeader
                   & noHeader
@@ -295,15 +295,13 @@ runApp port = do
   -- runUncheckedSqlIO dbConn dropArticlesSession
   -- runUncheckedSqlIO dbConn dropFollowsSession
   -- runUncheckedSqlIO dbConn dropUsersSession
-  -- runUncheckedSqlIO dbConn dropTagsSession
 
   -- CREATE TABLES
-  -- runUncheckedSqlIO dbConn createUsersSession
-  -- runUncheckedSqlIO dbConn createArticlesSession
-  -- runUncheckedSqlIO dbConn createTagsSession
-  -- runUncheckedSqlIO dbConn createCommentsSession
-  -- runUncheckedSqlIO dbConn createArticlesTagsSession
-  -- runUncheckedSqlIO dbConn createFollowsSession
+  runUncheckedSqlIO dbConn createUsersSession
+  runUncheckedSqlIO dbConn createArticlesSession
+  runUncheckedSqlIO dbConn createCommentsSession
+  runUncheckedSqlIO dbConn createArticlesTagsSession
+  runUncheckedSqlIO dbConn createFollowsSession
 
   -- DB SETUP END --
 
