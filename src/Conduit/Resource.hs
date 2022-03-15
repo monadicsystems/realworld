@@ -14,10 +14,18 @@
 
 module Conduit.Resource where
 
+import Conduit.App
+import Conduit.Database
 import qualified Conduit.Model as Model
+import qualified Conduit.Validate as Validate
 import Control.Monad (forM_)
+import Control.Monad.IO.Class (liftIO)
+import Data.Aeson
+import Data.Function ((&))
+import Data.Map.Strict (toList)
 import Data.Proxy
 import Data.Text
+import Data.Text.Encoding (encodeUtf8)
 import Lucid
 import Lucid.Htmx
 import Lucid.Htmx.Servant
@@ -29,12 +37,27 @@ import Servant.HTML.Lucid (HTML)
 import Servant.Htmx
 import Servant.Links
 import Servant.Server
+import Web.Forma (FormResult (..), runForm, showFieldName)
 
--- VIEWS START --
-data Partial a = Wrapped (Maybe Model.User) a | NotWrapped a
-
+-- HELPERS START --
 toUrl :: ToHttpApiData a => a -> Text
 toUrl link = "/" <> toUrlPiece link
+
+redirectToRegisterForm = throwError $ err303
+  { errHeaders = [("Location", encodeUtf8 $ toUrl registerFormLink)]
+  }
+
+proxy :: forall a. Proxy a
+proxy = Proxy
+
+getLink ::
+  forall endpoint.
+  (IsElem endpoint Routes, HasLink endpoint) =>
+  Proxy endpoint ->
+  MkLink endpoint Link
+getLink = safeLink $ proxy @Routes
+
+data Partial a = Wrapped (Maybe Model.User) a | NotWrapped a
 
 data Navbar = Navbar (Maybe Model.User) Bool
 
@@ -56,8 +79,8 @@ instance ToHtml Navbar where
             a_ [class_ "nav-link", hxGetSafe_ homeLink, href_ $ toUrl homeLink] "Home"
           case mbUser of
             Nothing -> do
-              li_ [class_ "nav-item"] $ a_ [class_ "nav-link", hxGetSafe_ signInFormLink, href_ $ toUrl signInFormLink] "Sign in"
-              li_ [class_ "nav-item"] $ a_ [class_ "nav-link", hxGetSafe_ signUpFormLink, href_ $ toUrl signUpFormLink] "Sign up"
+              li_ [class_ "nav-item"] $ a_ [class_ "nav-link", hxGetSafe_ loginFormLink, href_ $ toUrl loginFormLink] "Sign in"
+              li_ [class_ "nav-item"] $ a_ [class_ "nav-link", hxGetSafe_ registerFormLink, href_ $ toUrl registerFormLink] "Sign up"
             Just (Model.User bio email _ imageUrl username) -> do
               li_ [class_ "nav-item"] $
                 a_
@@ -169,6 +192,10 @@ instance ToHtml Tagbar where
           a_ [href_ link, class_ "tag-pill tag-default"] $ toHtml name
   toHtmlRaw = toHtml
 
+-- HELPERS END --
+
+-- HOME START --
+
 data Home = Home (Maybe Model.User)
 
 instance ToHtml Home where
@@ -197,90 +224,126 @@ instance ToHtml Home where
           div_ [id_ "tags", class_ "col-md-3"] $ toHtml $ Tagbar []
   toHtmlRaw = toHtml
 
-data SignUpForm = SignUpForm (Maybe Model.SignUpForm) [Text]
+type HomeRoute = Auth '[Cookie] Model.User :> HXRequest :> Get '[HTML] (Partial Home)
 
-instance ToHtml SignUpForm where
-  toHtml (SignUpForm mbSignUpForm errors) =
+homeHandler :: AuthResult Model.User -> Maybe Text -> App (Partial Home)
+homeHandler (Authenticated user) hxReq = pure $ case hxReq of
+  Just "true" -> NotWrapped $ Home (Just user)
+  _ -> Wrapped (Just user) $ Home (Just user)
+homeHandler _ hxReq = pure $ case hxReq of
+  Just "true" -> NotWrapped $ Home Nothing
+  _ -> Wrapped Nothing $ Home Nothing
+
+-- HOME END --
+
+-- Register Form Start --
+
+data RegisterForm = RegisterForm (Maybe Model.RegisterForm) [Text]
+
+instance ToHtml RegisterForm where
+  toHtml (RegisterForm mbRegisterForm errors) =
     div_ [class_ "auth-page"] $
       div_ [class_ "container page"] $
         div_ [class_ "row"] $
           div_ [class_ "col-md-6 offset-md-3 col-xs-12"] $ do
             h1_ [class_ "text-xs-center"] "Sign up"
-            p_ [class_ "text-xs-center"] $ a_ [hxBoost_ "true", hxTarget_ "#content-slot", hxPushUrlSafe_ (Left True), href_ $ toUrl signInFormLink] "Have an account?"
+            p_ [class_ "text-xs-center"] $ a_ [hxBoost_ "true", hxTarget_ "#content-slot", hxPushUrlSafe_ (Left True), href_ $ toUrl loginFormLink] "Have an account?"
             case errors of
               [] -> ""
               errors' -> ul_ [class_ "error-messages"] $ mapM_ (li_ [] . toHtml) errors'
-            form_ [hxPost_ $ toUrl signUpFormSubmitLink, hxTarget_ "#content-slot"] $ do
+            form_ [hxPost_ $ toUrl registerFormSubmitLink, hxTarget_ "#content-slot"] $ do
               fieldset_ [class_ "form-group"] $
                 input_
                   [ class_ "form-control form-control-lg",
                     type_ "text",
-                    name_ "signUpFormUsername",
+                    name_ "registerFormUsername",
                     placeholder_ "Username",
-                    value_ $ maybe "" Model.signUpFormUsername mbSignUpForm
+                    value_ $ maybe "" Model.registerFormUsername mbRegisterForm
                   ]
               fieldset_ [class_ "form-group"] $
                 input_
                   [ class_ "form-control form-control-lg",
                     type_ "text",
-                    name_ "signUpFormEmail",
+                    name_ "registerFormEmail",
                     placeholder_ "Email",
-                    value_ $ maybe "" Model.signUpFormEmail mbSignUpForm
+                    value_ $ maybe "" Model.registerFormEmail mbRegisterForm
                   ]
               fieldset_ [class_ "form-group"] $
                 input_
                   [ class_ "form-control form-control-lg",
                     type_ "password",
-                    name_ "signUpFormPassword",
+                    name_ "registerFormPassword",
                     placeholder_ "Password",
-                    value_ $ maybe "" Model.signUpFormPassword mbSignUpForm
+                    value_ $ maybe "" Model.registerFormPassword mbRegisterForm
                   ]
               button_ [class_ "btn btn-lg btn-primary pull-xs-right"] "Sign up"
   toHtmlRaw = toHtml
 
-data SignInForm = SignInForm (Maybe Model.SignInForm) [Text]
+type RegisterFormRoute = "register" :> HXRequest :> Get '[HTML] (Partial RegisterForm)
 
-instance ToHtml SignInForm where
-  toHtml (SignInForm mbSignInForm errors) =
+registerFormHandler :: Maybe Text -> App (Partial RegisterForm)
+registerFormHandler hxReq = pure $ case hxReq of
+  Just "true" -> NotWrapped $ RegisterForm Nothing []
+  _ -> Wrapped Nothing $ RegisterForm Nothing []
+
+-- Register Form End --
+
+-- Login Form Start --
+
+data LoginForm = LoginForm (Maybe Model.LoginForm) [Text]
+
+instance ToHtml LoginForm where
+  toHtml (LoginForm mbLoginForm errors) =
     div_ [class_ "auth-page"] $
       div_ [class_ "container page"] $
         div_ [class_ "row"] $
           div_ [class_ "col-md-6 offset-md-3 col-xs-12"] $ do
             h1_ [class_ "text-xs-center"] "Sign in"
-            p_ [class_ "text-xs-center"] $ a_ [hxBoost_ "true", hxTarget_ "#content-slot", hxPushUrlSafe_ (Left True), href_ $ toUrl signUpFormLink] "Need an account?"
+            p_ [class_ "text-xs-center"] $ a_ [hxBoost_ "true", hxTarget_ "#content-slot", hxPushUrlSafe_ (Left True), href_ $ toUrl registerFormLink] "Need an account?"
             case errors of
               [] -> ""
               errors' -> ul_ [class_ "error-messages"] $ mapM_ (li_ [] . toHtml) errors'
-            form_ [hxPostSafe_ signInFormSubmitLink, hxTarget_ "#content-slot"] $ do
+            form_ [hxPostSafe_ loginFormSubmitLink, hxTarget_ "#content-slot"] $ do
               fieldset_ [class_ "form-group"] $
                 input_
                   [ class_ "form-control form-control-lg",
                     type_ "text",
-                    name_ "signInFormEmail",
+                    name_ "loginFormEmail",
                     placeholder_ "Email",
-                    value_ $ maybe "" Model.signInFormEmail mbSignInForm
+                    value_ $ maybe "" Model.loginFormEmail mbLoginForm
                   ]
               fieldset_ [class_ "form-group"] $
                 input_
                   [ class_ "form-control form-control-lg",
                     type_ "password",
-                    name_ "signInFormPassword",
+                    name_ "loginFormPassword",
                     placeholder_ "Password",
-                    value_ $ maybe "" Model.signInFormPassword mbSignInForm
+                    value_ $ maybe "" Model.loginFormPassword mbLoginForm
                   ]
               button_ [class_ "btn btn-lg btn-primary pull-xs-right"] "Sign in"
   toHtmlRaw = toHtml
 
+type LoginFormRoute = "login" :> HXRequest :> Get '[HTML] (Partial LoginForm)
+
+loginFormHandler :: Maybe Text -> App (Partial LoginForm)
+loginFormHandler hxReq = pure $ case hxReq of
+  Just "true" -> NotWrapped $ LoginForm Nothing []
+  _ -> Wrapped Nothing $ LoginForm Nothing []
+
+-- Login Form End --
+
+-- Profile Start --
+
 data Profile
-  = PrivateProfile Model.User -- current user
-  | PublicProfile
+  = ProfilePrivate Model.User -- current user
+  | ProfilePublic
       Model.User -- other user
       Bool -- other user is followed?
 
 instance ToHtml Profile where
   toHtml profile =
     case profile of
-      PrivateProfile currentUser ->
+      ProfilePrivate currentUser ->
         profileTemplate currentUser $
           a_
             [ class_ "btn btn-sm btn-outline-secondary action-btn",
@@ -293,7 +356,7 @@ instance ToHtml Profile where
             $ do
               i_ [class_ "ion-gear-a"] ""
               " Edit Profile Settings "
-      PublicProfile otherUser following ->
+      ProfilePublic otherUser following ->
         profileTemplate otherUser $
           if following
             then toHtml $ UnfollowButton $ Model.userUsername otherUser
@@ -316,6 +379,39 @@ instance ToHtml Profile where
               div_ [class_ "col-xs-12 col-md-10 offset-md-1"] $ do
                 toHtml $ Feed True [("My Articles", "", True), ("Favorited Articles", "", False)] []
   toHtmlRaw = toHtml
+
+type ProfileRoute = "profile" :> Auth '[Cookie] Model.User :> HXRequest :> Capture "username" Text :> Get '[HTML] (Partial Profile)
+
+profileHandler :: AuthResult Model.User -> Maybe Text -> Text -> App (Partial Profile)
+profileHandler (Authenticated currentUser) hxReq username = do
+  result <- getUserByUsername username
+  case result of
+    Left _ -> throwError err401
+    Right user -> do
+      profile <-
+        if Model.userID currentUser == Model.userID user
+        then do
+          pure $ ProfilePrivate currentUser
+        else do
+          -- See if currentUser is following the other
+          isFollowingResult <- doesFollowExist currentUser user
+          case isFollowingResult of
+            Left _ -> throwError err401
+            Right isFollowing ->
+              pure $ ProfilePublic user isFollowing
+      pure $ case hxReq of
+        Just "true" -> NotWrapped profile
+        _ -> Wrapped (Just currentUser) profile
+profileHandler _ hxReq username = do
+  result <- getUserByUsername username
+  case result of
+    Left _ -> throwError err401
+    Right user -> pure $ case hxReq of
+        Just "true" -> NotWrapped $ ProfilePublic user False
+        _ -> Wrapped Nothing $ ProfilePublic user False
+-- Profile End --
+
+-- Settings Start --
 
 data Settings = Settings Model.User
 
@@ -367,6 +463,19 @@ instance ToHtml Settings where
               button_ [class_ "btn btn-outline-danger", hxPostSafe_ logoutLink, hxTarget_ "#content-slot"] $ "Or click here to logout."
   toHtmlRaw = toHtml
 
+type SettingsRoute = "settings" :> Auth '[Cookie] Model.User :> HXRequest :> Get '[HTML] (Partial Settings)
+
+settingsHandler :: AuthResult Model.User -> Maybe Text -> App (Partial Settings)
+settingsHandler (Authenticated currentUser) hxReq = 
+  pure $ case hxReq of
+    Just "true" -> NotWrapped $ Settings currentUser
+    _ -> Wrapped (Just currentUser) $ Settings currentUser
+settingsHandler _ _ = redirectToRegisterForm
+
+-- Settings End --
+
+-- Editor Start --
+
 data Editor = Editor
 
 instance ToHtml Editor where
@@ -385,6 +494,19 @@ instance ToHtml Editor where
                   div_ [class_ "tag-list"] ""
                 button_ [class_ "btn btn-lg pull-xs-right btn-primary", type_ "button"] "Publish Article"
   toHtmlRaw = toHtml
+
+type EditorRoute = "editor" :> Auth '[Cookie] Model.User :> HXRequest :> Get '[HTML] (Partial Editor)
+
+editorHandler :: AuthResult Model.User -> Maybe Text -> App (Partial Editor)
+editorHandler (Authenticated currentUser) hxReq =
+  pure $ case hxReq of
+    Just "true" -> NotWrapped Editor
+    _ -> Wrapped (Just currentUser) Editor
+editorHandler _ _ = redirectToRegisterForm
+
+-- Editor End --
+
+-- Article Start --
 
 data Article = Article
 
@@ -451,35 +573,174 @@ instance ToHtml Article where
                   i_ [class_ "ion-trash-a"] ""
   toHtmlRaw = toHtml
 
-data SignUpResponse
-  = SignUpFailure Model.SignUpForm [Text]
-  | SignUpSuccess Model.User
+-- TODO: Implement Route and Handler
 
-instance ToHtml SignUpResponse where
-  toHtml (SignUpFailure signUpForm errors) = toHtml $ SignUpForm (Just signUpForm) errors
-  toHtml (SignUpSuccess user) = do
+-- Article End --
+
+-- Register Response Start --
+
+data RegisterResponse
+  = RegisterFailure Model.RegisterForm [Text]
+  | RegisterSuccess Model.User
+
+instance ToHtml RegisterResponse where
+  toHtml (RegisterFailure registerForm errors) = toHtml $ RegisterForm (Just registerForm) errors
+  toHtml (RegisterSuccess user) = do
     toHtml $ Home $ Just user
     toHtml $ Navbar (Just user) True
   toHtmlRaw = toHtml
 
-data SignInResponse
-  = SignInFailure Model.SignInForm [Text]
-  | SignInSuccess Model.User
+type RegisterRoute =
+  "register"
+    :> ReqBody '[FormUrlEncoded] Model.RegisterForm
+    :> Post '[HTML] (Headers '[HXPush, Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] RegisterResponse)
 
-instance ToHtml SignInResponse where
-  toHtml (SignInFailure signInForm errors) = toHtml $ SignInForm (Just signInForm) errors
-  toHtml (SignInSuccess user) = do
+registerHandler ::
+  CookieSettings ->
+  JWTSettings ->
+  Model.RegisterForm ->
+  App (Headers '[HXPush, Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] RegisterResponse)
+registerHandler
+  cookieSettings
+  jwtSettings
+  registerForm = do
+    -- Check that submission is valid
+    formResult <- runForm Validate.registerForm (toJSON registerForm)
+    case formResult of
+      ParsingFailed _ parseErr ->
+        [parseErr]
+          & RegisterFailure registerForm
+          & noHeader
+          & noHeader
+          & noHeader
+          & pure
+      ValidationFailed errMap ->
+        errMap
+          & toList
+          & Prelude.map (\(field, f) -> f $ showFieldName field)
+          & RegisterFailure registerForm
+          & noHeader
+          & noHeader
+          & noHeader
+          & pure
+      Succeeded registerForm -> do
+        -- If valid form, write user to DB and return creds
+        -- TODO: Write user info to DB and getCreds
+        result <- insertUser registerForm
+        case result of
+          Left err ->
+            RegisterFailure registerForm [pack $ show err]
+              & noHeader
+              & noHeader
+              & noHeader
+              & pure
+          Right user -> do
+            mApplyCookies <- liftIO $ acceptLogin cookieSettings jwtSettings user
+            case mApplyCookies of
+              Nothing -> throwError err401
+              Just applyCookies ->
+                RegisterSuccess user
+                  & applyCookies
+                  & addHeader (toUrl homeLink)
+                  & pure
+
+-- Register Response End --
+
+-- Login Response Start --
+
+data LoginResponse
+  = LoginFailure Model.LoginForm [Text]
+  | LoginSuccess Model.User
+
+instance ToHtml LoginResponse where
+  toHtml (LoginFailure loginForm errors) = toHtml $ LoginForm (Just loginForm) errors
+  toHtml (LoginSuccess user) = do
     toHtml $ Home $ Just user
     toHtml $ Navbar (Just user) True
   toHtmlRaw = toHtml
 
-data SignOutResponse = SignOutResponse
+type LoginRoute =
+  "login"
+    :> ReqBody '[FormUrlEncoded] Model.LoginForm
+    :> Post '[HTML] (Headers '[HXPush, Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] LoginResponse)
 
-instance ToHtml SignOutResponse where
-  toHtml SignOutResponse = do
+loginHandler ::
+  CookieSettings ->
+  JWTSettings ->
+  Model.LoginForm ->
+  App (Headers '[HXPush, Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] LoginResponse)
+loginHandler
+  cookieSettings
+  jwtSettings
+  loginForm = do
+    -- Check that submission is valid
+    formResult <- runForm Validate.loginForm (toJSON loginForm)
+    liftIO $ print loginForm
+    case formResult of
+      ParsingFailed _ parseErr ->
+        [parseErr]
+          & LoginFailure loginForm
+          & noHeader
+          & noHeader
+          & noHeader
+          & pure
+      ValidationFailed errMap ->
+        errMap
+          & toList
+          & Prelude.map (\(field, f) -> f $ showFieldName field)
+          & LoginFailure loginForm
+          & noHeader
+          & noHeader
+          & noHeader
+          & pure
+      Succeeded loginForm -> do
+        -- If valid form, fetch user from DB and return creds
+        -- TODO: Fetch user info from DB and getCreds
+        result <- verifyUser loginForm
+        case result of
+          Left err ->
+            LoginFailure loginForm [pack . show $ err]
+              & noHeader
+              & noHeader
+              & noHeader
+              & pure
+          Right user -> do
+            mApplyCookies <- liftIO $ acceptLogin cookieSettings jwtSettings user
+            case mApplyCookies of
+              Nothing -> throwError err401
+              Just applyCookies ->
+                applyCookies (LoginSuccess user)
+                  & addHeader (toUrl homeLink)
+                  & pure
+
+-- Login Response End --
+
+-- Logout Response Start --
+
+data LogoutResponse = LogoutResponse
+
+instance ToHtml LogoutResponse where
+  toHtml LogoutResponse = do
     toHtml $ Home Nothing
     toHtml $ Navbar Nothing True
   toHtmlRaw = toHtml
+
+type LogoutRoute =
+  "logout"
+  :> Auth '[Cookie] Model.User
+  :> Post '[HTML] (Headers '[HXPush, Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] LogoutResponse)
+
+logoutHandler :: AuthResult Model.User -> App (Headers '[HXPush, Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] LogoutResponse)
+logoutHandler _ = do
+  LogoutResponse
+  & noHeader
+  & noHeader
+  & addHeader (toUrl homeLink)
+  & pure
+
+-- Logout Response End --
+
+-- Follow Button Start --
 
 data FollowButton = FollowButton Text
 
@@ -496,6 +757,15 @@ instance ToHtml FollowButton where
         " Follow " <> toHtml followee <> " "
   toHtmlRaw = toHtml
 
+type FollowRoute = "follow" :> Auth '[Cookie] Model.User :> ReqBody '[FormUrlEncoded] Model.FollowForm :> Post '[HTML] UnfollowButton
+
+followHandler :: AuthResult Model.User -> Model.FollowForm -> App UnfollowButton
+followHandler = undefined
+
+-- Follow Button End --
+
+-- Unfollow Button Start --
+
 data UnfollowButton = UnfollowButton Text
 
 instance ToHtml UnfollowButton where
@@ -511,105 +781,55 @@ instance ToHtml UnfollowButton where
         " Unfollow " <> toHtml unfollowee <> " "
   toHtmlRaw = toHtml
 
--- VIEWS END --
+type UnfollowRoute = "unfollow" :> Auth '[Cookie] Model.User :> ReqBody '[FormUrlEncoded] Model.UnfollowForm :> Post '[HTML] FollowButton
 
--- ROUTES START --
--- TODO: Factor out HXRequest
+unfollowHandler :: AuthResult Model.User -> Model.UnfollowForm -> App FollowButton
+unfollowHandler = undefined
 
-type SignUpFormRoute = "register" :> HXRequest :> Get '[HTML] (Partial SignUpForm)
+-- Unfollow Button End --
 
-type SignInFormRoute = "login" :> HXRequest :> Get '[HTML] (Partial SignInForm)
-
-type SignUpFormSubmitRoute =
-  "sign-up"
-    :> ReqBody '[FormUrlEncoded] Model.SignUpForm
-    :> Post '[HTML] (Headers '[HXPush, Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] SignUpResponse)
-
-type SignInFormSubmitRoute =
-  "sign-in"
-    :> ReqBody '[FormUrlEncoded] Model.SignInForm
-    :> Post '[HTML] (Headers '[HXPush, Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] SignInResponse)
-
-type UnprotectedRoutes =
-  SignUpFormRoute
-    :<|> SignInFormRoute
-    :<|> SignUpFormSubmitRoute
-    :<|> SignInFormSubmitRoute
-
--- TODO: REMOVE PARTIALS WHERE POSSIBLE
-
-type HomeRoute = HXRequest :> Get '[HTML] (Partial Home)
-
-type FollowRoute = "follow" :> ReqBody '[FormUrlEncoded] Model.FollowForm :> Post '[HTML] UnfollowButton
-
-type UnfollowRoute = "unfollow" :> ReqBody '[FormUrlEncoded] Model.UnfollowForm :> Post '[HTML] FollowButton
-
-type EditorRoute = "editor" :> HXRequest :> Get '[HTML] (Partial Editor)
-
-type SettingsRoute = "settings" :> HXRequest :> Get '[HTML] (Partial Settings)
-
-type ProfileRoute = "profile" :> HXRequest :> Capture "username" Text :> Get '[HTML] (Partial Profile)
-
-type LogoutRoute = "logout" :> Post '[HTML] (Headers '[HXPush, Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] SignOutResponse)
-
-type ProtectedRoutes =
-  HomeRoute
+type Routes =
+    HomeRoute
     :<|> FollowRoute
     :<|> UnfollowRoute
     :<|> EditorRoute
     :<|> SettingsRoute
     :<|> ProfileRoute
     :<|> LogoutRoute
+    :<|> RegisterFormRoute
+    :<|> LoginFormRoute
+    :<|> RegisterRoute
+    :<|> LoginRoute
 
-type Routes =
-  (Auth '[Cookie] Model.User :> ProtectedRoutes)
-    :<|> UnprotectedRoutes
+loginFormLink :: Link
+loginFormLink = getLink $ proxy @LoginFormRoute
 
--- ROUTES END --
+loginFormSubmitLink :: Link
+loginFormSubmitLink = getLink $ proxy @LoginRoute
 
--- LINKS START --
+registerFormLink :: Link
+registerFormLink = getLink $ proxy @RegisterFormRoute
 
-proxy :: forall a. Proxy a
-proxy = Proxy
-
-getLink ::
-  forall endpoint.
-  (IsElem endpoint Routes, HasLink endpoint) =>
-  Proxy endpoint ->
-  MkLink endpoint Link
-getLink = safeLink $ proxy @Routes
-
-signInFormLink :: Link
-signInFormLink = getLink $ proxy @SignInFormRoute
-
-signInFormSubmitLink :: Link
-signInFormSubmitLink = getLink $ proxy @SignInFormSubmitRoute
-
-signUpFormLink :: Link
-signUpFormLink = getLink $ proxy @SignUpFormRoute
-
-signUpFormSubmitLink :: Link
-signUpFormSubmitLink = getLink $ proxy @SignUpFormSubmitRoute
+registerFormSubmitLink :: Link
+registerFormSubmitLink = getLink $ proxy @RegisterRoute
 
 homeLink :: Link
-homeLink = getLink $ proxy @(Auth '[Cookie] Model.User :> HomeRoute)
+homeLink = getLink $ proxy @HomeRoute
 
 profileLink :: Text -> Link
-profileLink = getLink $ proxy @(Auth '[Cookie] Model.User :> ProfileRoute)
+profileLink = getLink $ proxy @ProfileRoute
 
 followLink :: Link
-followLink = getLink $ proxy @(Auth '[Cookie] Model.User :> FollowRoute)
+followLink = getLink $ proxy @FollowRoute
 
 unfollowLink :: Link
-unfollowLink = getLink $ proxy @(Auth '[Cookie] Model.User :> UnfollowRoute)
+unfollowLink = getLink $ proxy @UnfollowRoute
 
 editorLink :: Link
-editorLink = getLink $ proxy @(Auth '[Cookie] Model.User :> EditorRoute)
+editorLink = getLink $ proxy @EditorRoute
 
 settingsLink :: Link
-settingsLink = getLink $ proxy @(Auth '[Cookie] Model.User :> SettingsRoute)
+settingsLink = getLink $ proxy @SettingsRoute
 
 logoutLink :: Link
-logoutLink = getLink $ proxy @(Auth '[Cookie] Model.User :> LogoutRoute)
-
--- LINKS END --
+logoutLink = getLink $ proxy @LogoutRoute

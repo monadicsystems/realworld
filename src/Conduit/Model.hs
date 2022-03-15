@@ -56,28 +56,28 @@ data Follow = (ID User) :-> (ID User)
 
 -- FORM MODELS START --
 
-data SignInForm = SignInForm
-  { signInFormEmail :: Text,
-    signInFormPassword :: Text
+data LoginForm = LoginForm
+  { loginFormEmail :: Text,
+    loginFormPassword :: Text
   }
   deriving (FromForm, Generic, Show)
 
-instance ToJSON SignInForm where
-  toJSON (SignInForm email password) =
+instance ToJSON LoginForm where
+  toJSON (LoginForm email password) =
     object
       [ "email" .= email,
         "password" .= password
       ]
 
-data SignUpForm = SignUpForm
-  { signUpFormEmail :: Text,
-    signUpFormPassword :: Text,
-    signUpFormUsername :: Text
+data RegisterForm = RegisterForm
+  { registerFormEmail :: Text,
+    registerFormPassword :: Text,
+    registerFormUsername :: Text
   }
   deriving (FromForm, Generic, Show)
 
-instance ToJSON SignUpForm where
-  toJSON (SignUpForm email password username) =
+instance ToJSON RegisterForm where
+  toJSON (RegisterForm email password username) =
     object
       [ "email" .= email,
         "password" .= password,

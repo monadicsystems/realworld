@@ -4,7 +4,7 @@
 
 module Conduit.Validate where
 
-import Conduit.Model (SignInForm (..), SignUpForm (..))
+import Conduit.Model (LoginForm (..), RegisterForm (..))
 import Control.Applicative ((<|>))
 import Control.Monad ((>=>))
 import Control.Monad.Trans.Except
@@ -13,19 +13,19 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Web.Forma
 
-type SignInFormFields = '["email", "password"]
+type LoginFormFields = '["email", "password"]
 
 type SignUpFormFields = '["email", "password", "username"]
 
-signInForm :: Monad m => FormParser SignInFormFields (Text -> Text) m SignInForm
-signInForm =
-  SignInForm
+loginForm :: Monad m => FormParser LoginFormFields (Text -> Text) m LoginForm
+loginForm =
+  LoginForm
     <$> field #email (notEmpty {- >=> validEmail -})
     <*> field #password (notEmpty {- >=> tooShort -})
 
-signUpForm :: Monad m => FormParser SignUpFormFields (Text -> Text) m SignUpForm
-signUpForm =
-  SignUpForm
+registerForm :: Monad m => FormParser SignUpFormFields (Text -> Text) m RegisterForm
+registerForm =
+  RegisterForm
     <$> field #email (notEmpty {- >=> validEmail -})
     <*> field #password (notEmpty {- >=> tooShort -})
     <*> field #username notEmpty

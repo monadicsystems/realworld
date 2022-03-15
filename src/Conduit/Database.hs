@@ -7,7 +7,7 @@ module Conduit.Database where
 
 import Conduit.App
 import Conduit.Model
-import Conduit.Model (SignUpForm (SignUpForm))
+import Conduit.Model (RegisterForm (RegisterForm))
 import Control.Monad.IO.Class (liftIO)
 import Data.Bifunctor (bimap)
 import Data.Function ((&))
@@ -48,11 +48,11 @@ settingsFormToTuple SettingsForm {..} =
     settingsFormNewPassword
   )
 
-signUpFormToTuple :: SignUpForm -> (Text, Text, Text)
-signUpFormToTuple SignUpForm {..} =
-  ( signUpFormUsername,
-    signUpFormEmail,
-    signUpFormPassword
+registerFormToTuple :: RegisterForm -> (Text, Text, Text)
+registerFormToTuple RegisterForm {..} =
+  ( registerFormUsername,
+    registerFormEmail,
+    registerFormPassword
   )
 
 newEditorFormToTuple :: NewEditorForm -> (Int32, Text, Text, Text)
@@ -127,10 +127,10 @@ createUsersSession =
       );
     |]
 
-insertUserStatement :: Statement SignUpForm User
+insertUserStatement :: Statement RegisterForm User
 insertUserStatement =
   dimap
-    signUpFormToTuple
+    registerFormToTuple
     tupleToUser
     [TH.singletonStatement|
       insert into users (username, email, hash)
@@ -158,10 +158,10 @@ updateUserStatement =
       returning pk_user :: int4, username :: text, email :: text, imageUrl :: text, bio :: text
     |]
 
-verifyUserStatement :: Statement SignInForm User
+verifyUserStatement :: Statement LoginForm User
 verifyUserStatement =
   dimap
-    signInFormToTuple
+    loginFormToTuple
     tupleToUser
     [TH.singletonStatement|
       select
@@ -174,8 +174,8 @@ verifyUserStatement =
       where email = $1 :: text and hash = crypt($2 :: text, hash)
     |]
   where
-    signInFormToTuple :: SignInForm -> (Text, Text)
-    signInFormToTuple SignInForm{..} = (signInFormEmail, signInFormPassword)
+    loginFormToTuple :: LoginForm -> (Text, Text)
+    loginFormToTuple LoginForm{..} = (loginFormEmail, loginFormPassword)
 
 -- USERS END --
 
@@ -415,10 +415,10 @@ runUncheckedSql session = do
 
 -- EXECUTION START --
 
-insertUser :: SignUpForm -> App (Either QueryError User)
+insertUser :: RegisterForm -> App (Either QueryError User)
 insertUser = runStatement insertUserStatement
 
-verifyUser :: SignInForm -> App (Either QueryError User)
+verifyUser :: LoginForm -> App (Either QueryError User)
 verifyUser = runStatement verifyUserStatement
 
 getUserByUsername :: Text -> App (Either QueryError User)
