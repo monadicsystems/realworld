@@ -1,6 +1,9 @@
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Conduit.Model where
 
@@ -9,10 +12,13 @@ import Data.Int (Int32)
 import Data.Text
 import Data.Time
 import GHC.Generics
+import Servant.API (FromHttpApiData, FormUrlEncoded, ToHttpApiData)
 import Servant.Auth.JWT (FromJWT, ToJWT)
 import Web.FormUrlEncoded (FromForm)
 
-newtype ID a = ID {unID :: Int32} deriving (Eq, Show, Generic, FromJSON, ToJSON)
+newtype ID a = ID {unID :: Int32}
+  deriving (Eq, Show, Generic, FromJSON, ToJSON)
+  deriving newtype (ToHttpApiData, FromHttpApiData)
 
 -- CORE MODELS START --
 
@@ -94,23 +100,41 @@ data SettingsForm = SettingsForm
   }
   deriving (Eq, Show, Generic, FromJSON, ToJSON)
 
-data NewEditorForm = NewEditorForm
-  { newEditorFormAuthorID :: ID User,
-    newEditorFormBody :: Text,
-    newEditorFormDescription :: Text,
-    newEditorFormTags :: Text,
-    newEditorFormTitle :: Text
+data PublishForm = PublishForm
+  { publishFormBody :: Text,
+    publishFormDescription :: Text,
+    publishFormTags :: Text,
+    publishFormTitle :: Text
   }
-  deriving (Eq, Show)
+  deriving (Generic, Eq, Show, FromForm)
 
-data UpdateEditorForm = UpdateEditorForm
-  { updateEditorFormArticleID :: ID Article,
-    updateEditorFormBody :: Text,
-    updateEditorFormDescription :: Text,
-    updateEditorFormTags :: Text,
-    updateEditorFormTitle :: Text
+instance ToJSON PublishForm where
+  toJSON PublishForm{..} =
+    object
+      [ "body" .= publishFormBody,
+        "description" .= publishFormDescription,
+        "tags" .= publishFormTags,
+        "title" .= publishFormTitle
+      ]
+
+data EditArticleForm = EditArticleForm
+  { editArticleFormArticleID :: ID Article,
+    editArticleFormBody :: Text,
+    editArticleFormDescription :: Text,
+    editArticleFormTags :: Text,
+    editArticleFormTitle :: Text
   }
-  deriving (Eq, Show)
+  deriving (Generic, FromForm, Eq, Show)
+
+instance ToJSON EditArticleForm where
+  toJSON EditArticleForm{..} =
+    object
+      [ "articleID" .= editArticleFormArticleID,
+        "body" .= editArticleFormBody,
+        "description" .= editArticleFormDescription,
+        "tags" .= editArticleFormTags,
+        "title" .= editArticleFormTitle
+      ]
 
 data CommentForm = CommentForm
   { commentFormArticleID :: ID Article,
@@ -128,5 +152,11 @@ newtype UnfollowForm = UnfollowForm
   { unfollowFormTarget :: Text
   }
   deriving (FromForm, Generic, Show)
+
+type ArticleInfo =
+  ( Article
+  , User
+  , [Tag]
+  )
 
 -- FORM MODELS END --

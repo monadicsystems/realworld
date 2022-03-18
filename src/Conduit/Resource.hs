@@ -39,160 +39,26 @@ import Servant.Links
 import Servant.Server
 import Web.Forma (FormResult (..), runForm, showFieldName)
 
--- HELPERS START --
-toUrl :: ToHttpApiData a => a -> Text
-toUrl link = "/" <> toUrlPiece link
-
-redirectToRegisterForm = throwError $ err303
-  { errHeaders = [("Location", encodeUtf8 $ toUrl registerFormLink)]
-  }
-
-proxy :: forall a. Proxy a
-proxy = Proxy
-
-getLink ::
-  forall endpoint.
-  (IsElem endpoint Routes, HasLink endpoint) =>
-  Proxy endpoint ->
-  MkLink endpoint Link
-getLink = safeLink $ proxy @Routes
-
-data Partial a = Wrapped (Maybe Model.User) a | NotWrapped a
-
-data Navbar = Navbar (Maybe Model.User) Bool
-
-instance ToHtml Navbar where
-  toHtml (Navbar mbUser isOob) = do
-    nav_
-      [ id_ "navbar",
-        class_ "navbar navbar-light",
-        hxBoost_ "true",
-        hxTarget_ "#content-slot",
-        hxPushUrlSafe_ (Left True),
-        if isOob then hxSwapOob_ "true" else class_ ""
-      ]
-      $ div_ [class_ "container"] $ do
-        -- TODO: Does it make sense to use hxGet_ and href_ for boost?
-        a_ [class_ "navbar-brand", hxGetSafe_ homeLink, href_ $ toUrl homeLink] "conduit"
-        ul_ [class_ "nav navbar-nav pull-xs-right"] $ do
-          li_ [class_ "nav-item"] $
-            a_ [class_ "nav-link", hxGetSafe_ homeLink, href_ $ toUrl homeLink] "Home"
-          case mbUser of
-            Nothing -> do
-              li_ [class_ "nav-item"] $ a_ [class_ "nav-link", hxGetSafe_ loginFormLink, href_ $ toUrl loginFormLink] "Sign in"
-              li_ [class_ "nav-item"] $ a_ [class_ "nav-link", hxGetSafe_ registerFormLink, href_ $ toUrl registerFormLink] "Sign up"
-            Just (Model.User bio email _ imageUrl username) -> do
-              li_ [class_ "nav-item"] $
-                a_
-                  [ class_ "nav-link",
-                    hxGetSafe_ editorLink,
-                    href_ $ toUrl editorLink
-                  ]
-                  $ do
-                    i_ [class_ "ion-compose"] ""
-                    "New Article"
-              li_ [class_ "nav-item"] $
-                a_
-                  [ class_ "nav-link",
-                    hxGetSafe_ settingsLink,
-                    href_ $ toUrl settingsLink
-                  ]
-                  $ do
-                    i_ [class_ "ion-gear-a"] ""
-                    "Settings"
-              li_ [class_ "nav-item"] $
-                a_ [class_ "nav-link", href_ . toUrl . profileLink $ "@" <> username] $ do
-                  img_ [class_ "user-pic", src_ imageUrl]
-                  toHtml $ " " <> username <> " "
-  toHtmlRaw = toHtml
-
-data Footer = Footer
-
-instance ToHtml Footer where
-  toHtml _ =
-    footer_ $
-      div_ [class_ "container"] $ do
-        a_ [href_ "/", class_ "logo-font"] "conduit"
-        span_ [class_ "attribution"] $ do
-          "          An interactive learning project from "
-          a_ [href_ "https://thinkster.io"] "Thinkster"
-          ". Code & design licensed under MIT.        "
-  toHtmlRaw = toHtml
-
-instance ToHtml a => ToHtml (Partial a) where
-  toHtml (Wrapped mbUser content) =
-    html_ $ do
-      head_ $ do
-        meta_ [charset_ "utf-8"]
-        title_ "Conduit"
-        link_ [href_ "//code.ionicframework.com/ionicons/2.0.1/css/ionicons.min.css", rel_ "stylesheet", type_ "text/css"]
-        link_ [href_ "//fonts.googleapis.com/css?family=Titillium+Web:700|Source+Serif+Pro:400,700|Merriweather+Sans:400,700|Source+Sans+Pro:400,300,600,700,300italic,400italic,600italic,700italic", rel_ "stylesheet", type_ "text/css"]
-        link_ [rel_ "stylesheet", href_ "//demo.productionready.io/main.css"]
-        useHtmx
-        -- useHtmxExtension "json-enc"
-        useHyperscript
-        [_hs|
-          on htmx:pushedIntoHistory(detail) set $currentUrl to detail.path
-          then trigger currentUrlChanged
-          then log $currentUrl
-        |]
-      body_ $ do
-        -- NAVBAR
-        toHtml $ Navbar mbUser False
-
-        -- CONTENT
-        div_ [id_ "content-slot"] $ toHtml content
-
-        -- FOOTER
-        toHtml Footer
-  toHtml (NotWrapped a) = toHtml a
-  toHtmlRaw = toHtml
-
-data Feed
-  = Feed
-      Bool -- is personal for user profile?
-      [(Text, Text, Bool)] -- Feed nav pill name, link and whether or not it's active or disabled
-      [(Model.User, Model.Article, [Model.Tag])] -- List of author article tags tuple
-
-instance ToHtml Feed where
-  toHtml (Feed isProfile pills articles) = do
-    div_ [class_ $ if isProfile then "articles-toggle" else "feed-toggle"] $
-      ul_ [class_ "nav nav-pills outline-active"] $ do
-        forM_ pills $ \(name, link, isActive) -> do
-          li_ [class_ "nav-item"] $
-            a_ [class_ $ "nav-link " <> if isActive then "active" else "disabled", href_ link] $ toHtml name
-    -- ARTICLES START
-    forM_ articles $ \(Model.User{..}, Model.Article{..}, tags) ->
-      div_ [class_ "article-preview"] $ do
-        div_ [class_ "article-meta"] $ do
-          a_ [href_ . toUrl . profileLink $ "@" <> userUsername] $ img_ [src_ userImageUrl]
-          div_ [class_ "info"] $ do
-            a_ [href_ . toUrl . profileLink $ "@" <> userUsername, class_ "author"] $ toHtml userUsername
-            span_ [class_ "date"] $ toHtml ("January 20th" :: Text)-- articleCreatedAt
-          button_ [class_ "btn btn-outline-primary btn-sm pull-xs-right"] $ do
-            i_ [class_ "ion-heart"] ""
-            toHtml $ show articleFavorites
-        a_ [href_ "" {- slugify article title -}, class_ "preview-link"] $ do
-          h1_ $ toHtml articleTitle
-          p_ $ toHtml articleDescription
-          span_ $ toHtml ("Read more..." :: Text)
-          ul_ [class_ "tag-list"] $ forM_ tags $ \(Model.Tag t) ->
-            li_ [class_ "tag-default tag-pill tag-outline"] $ toHtml t
-  -- ARTICLES END
-  toHtmlRaw = toHtml
-
-data Tagbar = Tagbar [(Text, Text)] -- name of tag and what it links too, could just be name bcuz same as link
-
-instance ToHtml Tagbar where
-  toHtml (Tagbar tags) =
-    div_ [class_ "sidebar"] $ do
-      p_ "Popular Tags"
-      div_ [class_ "tag-list"] $
-        forM_ tags $ \(name, link) ->
-          a_ [href_ link, class_ "tag-pill tag-default"] $ toHtml name
-  toHtmlRaw = toHtml
-
--- HELPERS END --
+type Routes =
+  HomeRoute
+    :<|> ArticleRoute
+    :<|> FollowRoute
+    :<|> UnfollowRoute
+    :<|> PublishFormRoute
+    :<|> EditArticleFormRoute
+    :<|> SettingsRoute
+    :<|> ProfileRoute
+    :<|> LogoutRoute
+    :<|> RegisterFormRoute
+    :<|> LoginFormRoute
+    :<|> RegisterRoute
+    :<|> LoginRoute
+    :<|> PublishRoute
+    :<|> EditArticleRoute
+    :<|> GlobalFeedRoute
+    :<|> TagFeedRoute
+    :<|> AuthorFeedRoute
+    :<|> FavoritesFeedRoute
 
 -- HOME START --
 
@@ -213,11 +79,11 @@ instance ToHtml Home where
           -- FEED
           div_ [id_ "feeds", class_ "col-md-9"] $
             toHtml $ case mbUser of
-              Nothing -> Feed False [("Global Feed", "", True)] []
-              Just _ ->
+              Nothing -> Feed False [("Global Feed", globalFeedLink, True)] []
+              Just Model.User {..} ->
                 Feed
                   False
-                  [("Your Feed", "", True), ("Global Feed", "", False)]
+                  [("Your Feed", authorFeedLink userID, True), ("Global Feed", globalFeedLink, False)]
                   []
 
           -- TAGS
@@ -251,7 +117,7 @@ instance ToHtml RegisterForm where
             case errors of
               [] -> ""
               errors' -> ul_ [class_ "error-messages"] $ mapM_ (li_ [] . toHtml) errors'
-            form_ [hxPost_ $ toUrl registerFormSubmitLink, hxTarget_ "#content-slot"] $ do
+            form_ [hxPost_ $ toUrl registerLink, hxTarget_ "#content-slot"] $ do
               fieldset_ [class_ "form-group"] $
                 input_
                   [ class_ "form-control form-control-lg",
@@ -303,7 +169,7 @@ instance ToHtml LoginForm where
             case errors of
               [] -> ""
               errors' -> ul_ [class_ "error-messages"] $ mapM_ (li_ [] . toHtml) errors'
-            form_ [hxPostSafe_ loginFormSubmitLink, hxTarget_ "#content-slot"] $ do
+            form_ [hxPostSafe_ loginLink, hxTarget_ "#content-slot"] $ do
               fieldset_ [class_ "form-group"] $
                 input_
                   [ class_ "form-control form-control-lg",
@@ -363,7 +229,7 @@ instance ToHtml Profile where
             else toHtml $ FollowButton $ Model.userUsername otherUser
     where
       profileTemplate :: Monad m => Model.User -> HtmlT m () -> HtmlT m ()
-      profileTemplate (Model.User bio email _ imageUrl username) action =
+      profileTemplate (Model.User bio email userID imageUrl username) action =
         div_ [class_ "profile-page"] $ do
           div_ [class_ "user-info"] $
             div_ [class_ "container"] $
@@ -377,7 +243,7 @@ instance ToHtml Profile where
           div_ [class_ "container"] $
             div_ [class_ "row"] $
               div_ [class_ "col-xs-12 col-md-10 offset-md-1"] $ do
-                toHtml $ Feed True [("My Articles", "", True), ("Favorited Articles", "", False)] []
+                toHtml $ Feed True [("My Articles", authorFeedLink userID, True), ("Favorited Articles", favoritesFeedLink userID, False)] []
   toHtmlRaw = toHtml
 
 type ProfileRoute = "profile" :> Auth '[Cookie] Model.User :> HXRequest :> Capture "username" Text :> Get '[HTML] (Partial Profile)
@@ -390,15 +256,15 @@ profileHandler (Authenticated currentUser) hxReq username = do
     Right user -> do
       profile <-
         if Model.userID currentUser == Model.userID user
-        then do
-          pure $ ProfilePrivate currentUser
-        else do
-          -- See if currentUser is following the other
-          isFollowingResult <- doesFollowExist currentUser user
-          case isFollowingResult of
-            Left _ -> throwError err401
-            Right isFollowing ->
-              pure $ ProfilePublic user isFollowing
+          then do
+            pure $ ProfilePrivate currentUser
+          else do
+            -- See if currentUser is following the other
+            isFollowingResult <- doesFollowExist currentUser user
+            case isFollowingResult of
+              Left _ -> throwError err401
+              Right isFollowing ->
+                pure $ ProfilePublic user isFollowing
       pure $ case hxReq of
         Just "true" -> NotWrapped profile
         _ -> Wrapped (Just currentUser) profile
@@ -407,8 +273,9 @@ profileHandler _ hxReq username = do
   case result of
     Left _ -> throwError err401
     Right user -> pure $ case hxReq of
-        Just "true" -> NotWrapped $ ProfilePublic user False
-        _ -> Wrapped Nothing $ ProfilePublic user False
+      Just "true" -> NotWrapped $ ProfilePublic user False
+      _ -> Wrapped Nothing $ ProfilePublic user False
+
 -- Profile End --
 
 -- Settings Start --
@@ -466,7 +333,7 @@ instance ToHtml Settings where
 type SettingsRoute = "settings" :> Auth '[Cookie] Model.User :> HXRequest :> Get '[HTML] (Partial Settings)
 
 settingsHandler :: AuthResult Model.User -> Maybe Text -> App (Partial Settings)
-settingsHandler (Authenticated currentUser) hxReq = 
+settingsHandler (Authenticated currentUser) hxReq =
   pure $ case hxReq of
     Just "true" -> NotWrapped $ Settings currentUser
     _ -> Wrapped (Just currentUser) $ Settings currentUser
@@ -474,44 +341,14 @@ settingsHandler _ _ = redirectToRegisterForm
 
 -- Settings End --
 
--- Editor Start --
-
-data Editor = Editor
-
-instance ToHtml Editor where
-  toHtml Editor =
-    div_ [class_ "editor-page"] $
-      div_ [class_ "container page"] $
-        div_ [class_ "row"] $
-          div_ [class_ "col-md-10 offset-md-1 col-xs-12"] $
-            form_ $
-              fieldset_ $ do
-                fieldset_ [class_ "form-group"] $ input_ [type_ "text", class_ "form-control form-control-lg", placeholder_ "Article Title"]
-                fieldset_ [class_ "form-group"] $ input_ [type_ "text", class_ "form-control", placeholder_ "What's this article about?"]
-                fieldset_ [class_ "form-group"] $ textarea_ [class_ "form-control", rows_ "8", placeholder_ "Write your article (in markdown)"] ""
-                fieldset_ [class_ "form-group"] $ do
-                  input_ [type_ "text", class_ "form-control", placeholder_ "Enter tags"]
-                  div_ [class_ "tag-list"] ""
-                button_ [class_ "btn btn-lg pull-xs-right btn-primary", type_ "button"] "Publish Article"
-  toHtmlRaw = toHtml
-
-type EditorRoute = "editor" :> Auth '[Cookie] Model.User :> HXRequest :> Get '[HTML] (Partial Editor)
-
-editorHandler :: AuthResult Model.User -> Maybe Text -> App (Partial Editor)
-editorHandler (Authenticated currentUser) hxReq =
-  pure $ case hxReq of
-    Just "true" -> NotWrapped Editor
-    _ -> Wrapped (Just currentUser) Editor
-editorHandler _ _ = redirectToRegisterForm
-
--- Editor End --
-
 -- Article Start --
 
-data Article = Article
+data Article =
+  PrivateViewArticle Model.ArticleInfo
+  | PublicViewArticle Model.ArticleInfo
 
 instance ToHtml Article where
-  toHtml Article =
+  toHtml (PrivateViewArticle (Model.Article {..}, Model.User {..}, tags)) =
     div_ [class_ "article-page"] $ do
       div_ [class_ "banner"] $
         div_ [class_ "container"] $ do
@@ -573,9 +410,167 @@ instance ToHtml Article where
                   i_ [class_ "ion-trash-a"] ""
   toHtmlRaw = toHtml
 
--- TODO: Implement Route and Handler
+type ArticleRoute =
+  "article" :> Auth '[Cookie] Model.User :> HXRequest :> Capture "article-id" (Model.ID Model.Article) :> Get '[HTML] (Partial Article)
+
+articleHandler :: AuthResult Model.User -> Maybe Text -> Model.ID Model.Article -> App (Partial Article)
+articleHandler = 
 
 -- Article End --
+
+-- Publish Form Start --
+
+data PublishForm = PublishForm
+
+instance ToHtml PublishForm where
+  toHtml PublishForm =
+    div_ [class_ "editor-page"] $
+      div_ [class_ "container page"] $
+        div_ [class_ "row"] $
+          div_ [class_ "col-md-10 offset-md-1 col-xs-12"] $
+            form_ $
+              fieldset_ $ do
+                fieldset_ [class_ "form-group"] $ input_ [type_ "text", class_ "form-control form-control-lg", placeholder_ "Article Title"]
+                fieldset_ [class_ "form-group"] $ input_ [type_ "text", class_ "form-control", placeholder_ "What's this article about?"]
+                fieldset_ [class_ "form-group"] $ textarea_ [class_ "form-control", rows_ "8", placeholder_ "Write your article (in markdown)"] ""
+                fieldset_ [class_ "form-group"] $ do
+                  input_ [type_ "text", class_ "form-control", placeholder_ "Enter tags"]
+                  div_ [class_ "tag-list"] ""
+                button_ [class_ "btn btn-lg pull-xs-right btn-primary", type_ "button"] "Publish Article"
+  toHtmlRaw = toHtml
+
+type PublishFormRoute = "editor" :> "publish" :> Auth '[Cookie] Model.User :> HXRequest :> Get '[HTML] (Partial PublishForm)
+
+publishFormHandler :: AuthResult Model.User -> Maybe Text -> App (Partial PublishForm)
+publishFormHandler (Authenticated currentUser) hxReq =
+  pure $ case hxReq of
+    Just "true" -> NotWrapped PublishForm
+    _ -> Wrapped (Just currentUser) PublishForm
+editorHandler _ _ = redirectToRegisterForm
+
+-- Publish Form End --
+
+-- Edit Article Form Start --
+
+data EditArticleForm = EditArticleForm Model.Article
+
+instance ToHtml EditArticleForm where
+  toHtml (EditArticleForm Model.Article {..}) =
+    div_ [class_ "editor-page"] $
+      div_ [class_ "container page"] $
+        div_ [class_ "row"] $
+          div_ [class_ "col-md-10 offset-md-1 col-xs-12"] $
+            form_ $ do
+              input_ [type_ "hidden", name_ "editArticleFormArticleID", value_ $ pack $ show articleID]
+              fieldset_ $ do
+                fieldset_ [class_ "form-group"] $ input_ [type_ "text", class_ "form-control form-control-lg", placeholder_ "Article Title"]
+                fieldset_ [class_ "form-group"] $ input_ [type_ "text", class_ "form-control", placeholder_ "What's this article about?"]
+                fieldset_ [class_ "form-group"] $ textarea_ [class_ "form-control", rows_ "8", placeholder_ "Write your article (in markdown)"] ""
+                fieldset_ [class_ "form-group"] $ do
+                  input_ [type_ "text", class_ "form-control", placeholder_ "Enter tags"]
+                  div_ [class_ "tag-list"] ""
+                button_ [class_ "btn btn-lg pull-xs-right btn-primary", type_ "button"] "Publish Article"
+  toHtmlRaw = toHtml
+
+type EditArticleFormRoute =
+  "editor"
+  :> "edit"
+  :> Auth '[Cookie] Model.User
+  :> Capture "article-id" (Model.ID Model.Article)
+  :> HXRequest
+  :> Get '[HTML] (Partial EditArticleForm)
+
+editArticleFormHandler :: AuthResult Model.User -> Model.ID Model.Article -> Maybe Text -> App (Partial EditArticleForm)
+editArticleFormHandler (Authenticated currentUser) _ hxReq =
+  -- TODO: Query for article
+  pure $ case hxReq of
+    Just "true" -> NotWrapped $ EditArticleForm undefined
+    _ -> Wrapped (Just currentUser) $ EditArticleForm undefined
+editArticleFormHandler _ _ _ = redirectToRegisterForm 
+
+-- Edit Article Form End --
+
+-- Publish Start --
+
+data PublishResponse
+  = PublishFailure Model.PublishForm [Text]
+
+instance ToHtml PublishResponse where
+  toHtml = undefined
+  toHtmlRaw = toHtml
+
+type PublishRoute =
+  "publish"
+    :> Auth '[Cookie] Model.User
+    :> ReqBody '[FormUrlEncoded] Model.PublishForm
+    :> Post '[HTML] PublishResponse
+
+publishHandler :: AuthResult Model.User -> Model.PublishForm -> App PublishResponse
+publishHandler (Authenticated Model.User {..}) publishForm = do
+  -- Check that submission is valid
+  formResult <- runForm Validate.publishForm (toJSON publishForm)
+  case formResult of
+    ParsingFailed _ parseErr ->
+      [parseErr]
+        & PublishFailure publishForm
+        & pure
+    ValidationFailed errMap ->
+      errMap
+        & toList
+        & Prelude.map (\(field, f) -> f $ showFieldName field)
+        & PublishFailure publishForm
+        & pure
+    Succeeded publishForm -> do
+      result <- insertArticle (userID, publishForm)
+      case result of
+        Left err ->
+          PublishFailure publishForm [pack $ show err]
+            & pure
+        Right Model.Article {..} -> redirectToArticle articleID
+publishHandler _ _ = redirectToRegisterForm
+
+-- Publish End --
+
+-- Edit Article Start --
+
+data EditArticleResponse
+  = EditArticleFailure Model.EditArticleForm [Text]
+
+instance ToHtml EditArticleResponse where
+  toHtml = undefined
+  toHtmlRaw = toHtml
+
+type EditArticleRoute =
+  "edit-article"
+    :> Auth '[Cookie] Model.User
+    :> ReqBody '[FormUrlEncoded] Model.EditArticleForm
+    :> Post '[HTML] EditArticleResponse
+
+editArticleHandler :: AuthResult Model.User -> Model.EditArticleForm -> App EditArticleResponse
+editArticleHandler (Authenticated Model.User {..}) editArticleForm = do
+  -- Check that submission is valid
+  formResult <- runForm Validate.editArticleForm (toJSON editArticleForm)
+  case formResult of
+    ParsingFailed _ parseErr ->
+      [parseErr]
+        & EditArticleFailure editArticleForm
+        & pure
+    ValidationFailed errMap ->
+      errMap
+        & toList
+        & Prelude.map (\(field, f) -> f $ showFieldName field)
+        & EditArticleFailure editArticleForm
+        & pure
+    Succeeded editArticleForm -> do
+      result <- updateArticle (userID, editArticleForm)
+      case result of
+        Left err ->
+          EditArticleFailure editArticleForm [pack $ show err]
+            & pure
+        Right Model.Article {..} -> redirectToArticle articleID
+editArticleHandler _ _ = redirectToRegisterForm
+
+-- Edit Article End --
 
 -- Register Response Start --
 
@@ -586,6 +581,7 @@ data RegisterResponse
 instance ToHtml RegisterResponse where
   toHtml (RegisterFailure registerForm errors) = toHtml $ RegisterForm (Just registerForm) errors
   toHtml (RegisterSuccess user) = do
+    -- TODO: Just redirect to home?
     toHtml $ Home $ Just user
     toHtml $ Navbar (Just user) True
   toHtmlRaw = toHtml
@@ -727,16 +723,17 @@ instance ToHtml LogoutResponse where
 
 type LogoutRoute =
   "logout"
-  :> Auth '[Cookie] Model.User
-  :> Post '[HTML] (Headers '[HXPush, Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] LogoutResponse)
+    :> Auth '[Cookie] Model.User
+    :> Post '[HTML] (Headers '[HXPush, Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] LogoutResponse)
 
 logoutHandler :: AuthResult Model.User -> App (Headers '[HXPush, Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] LogoutResponse)
-logoutHandler _ = do
-  LogoutResponse
-  & noHeader
-  & noHeader
-  & addHeader (toUrl homeLink)
-  & pure
+logoutHandler _ =
+  do
+    LogoutResponse
+    & noHeader
+    & noHeader
+    & addHeader (toUrl homeLink)
+    & pure
 
 -- Logout Response End --
 
@@ -788,30 +785,236 @@ unfollowHandler = undefined
 
 -- Unfollow Button End --
 
-type Routes =
-    HomeRoute
-    :<|> FollowRoute
-    :<|> UnfollowRoute
-    :<|> EditorRoute
-    :<|> SettingsRoute
-    :<|> ProfileRoute
-    :<|> LogoutRoute
-    :<|> RegisterFormRoute
-    :<|> LoginFormRoute
-    :<|> RegisterRoute
-    :<|> LoginRoute
+-- Feed Handlers Start --
+
+type GlobalFeedRoute = "feed" :> "global" :> Get '[HTML] Feed
+
+type TagFeedRoute = "feed" :> "tag" :> Capture "tag" Text :> Get '[HTML] Feed
+
+type AuthorFeedRoute = "feed" :> "author" :> Capture "author" (Model.ID Model.User) :> Get '[HTML] Feed
+
+type FavoritesFeedRoute = "feed" :> "favorites" :> Capture "user" (Model.ID Model.User) :> Get '[HTML] Feed
+
+globalFeedHandler :: App Feed
+globalFeedHandler = do
+  articlesResult <- getAllArticles
+  case articlesResult of
+    Left queryErr -> throwError err401
+    Right articles -> do
+      articleInfos <- getArticleInfos articles
+      pure $ Feed
+        False
+        [("Global Feed", globalFeedLink, True)]
+        articleInfos
+
+tagFeedHandler :: Text -> App Feed
+tagFeedHandler tag = do
+  articlesResult <- getArticlesByTag $ Model.Tag tag
+  case articlesResult of
+    Left queryErr -> throwError err401
+    Right articles -> do
+      articleInfos <- getArticleInfos articles
+      pure $ Feed
+        False
+        [ ("Global Feed", globalFeedLink, False)
+        , ("# " <> tag, tagFeedLink tag, True)
+        ]
+        articleInfos
+
+authorFeedHandler :: Model.ID Model.User -> App Feed
+authorFeedHandler userID = do
+  articlesResult <- getArticlesByUserID userID
+  case articlesResult of
+    Left queryErr -> throwError err401
+    Right articles -> do
+      articleInfos <- getArticleInfos articles
+      pure $ Feed
+        True
+        [ ("My Articles", authorFeedLink userID, True)
+        , ("Favorited Articles", favoritesFeedLink userID, True)
+        ]
+        articleInfos
+
+favoritesFeedHandler :: Model.ID Model.User -> App Feed
+favoritesFeedHandler = undefined
+
+-- Feed Handlers End --
+
+-- HELPERS START --
+
+toUrl :: ToHttpApiData a => a -> Text
+toUrl link = "/" <> toUrlPiece link
+
+redirectToRegisterForm =
+  throwError $
+    err303
+      { errHeaders = [("Location", encodeUtf8 $ toUrl registerFormLink)]
+      }
+
+redirectToArticle articleID =
+  throwError $
+    err303
+      { errHeaders = [("Location", encodeUtf8 $ toUrl $ articleLink articleID)]
+      }
+
+proxy :: forall a. Proxy a
+proxy = Proxy
+
+getLink ::
+  forall endpoint.
+  (IsElem endpoint Routes, HasLink endpoint) =>
+  Proxy endpoint ->
+  MkLink endpoint Link
+getLink = safeLink $ proxy @Routes
+
+data Partial a = Wrapped (Maybe Model.User) a | NotWrapped a
+
+data Navbar = Navbar (Maybe Model.User) Bool
+
+instance ToHtml Navbar where
+  toHtml (Navbar mbUser isOob) = do
+    nav_
+      [ id_ "navbar",
+        class_ "navbar navbar-light",
+        hxBoost_ "true",
+        hxTarget_ "#content-slot",
+        hxPushUrlSafe_ (Left True),
+        if isOob then hxSwapOob_ "true" else class_ ""
+      ]
+      $ div_ [class_ "container"] $ do
+        -- TODO: Does it make sense to use hxGet_ and href_ for boost?
+        a_ [class_ "navbar-brand", hxGetSafe_ homeLink, href_ $ toUrl homeLink] "conduit"
+        ul_ [class_ "nav navbar-nav pull-xs-right"] $ do
+          li_ [class_ "nav-item"] $
+            a_ [class_ "nav-link", hxGetSafe_ homeLink, href_ $ toUrl homeLink] "Home"
+          case mbUser of
+            Nothing -> do
+              li_ [class_ "nav-item"] $ a_ [class_ "nav-link", hxGetSafe_ loginFormLink, href_ $ toUrl loginFormLink] "Sign in"
+              li_ [class_ "nav-item"] $ a_ [class_ "nav-link", hxGetSafe_ registerFormLink, href_ $ toUrl registerFormLink] "Sign up"
+            Just (Model.User bio email _ imageUrl username) -> do
+              li_ [class_ "nav-item"] $
+                a_
+                  [ class_ "nav-link",
+                    hxGetSafe_ publishFormLink,
+                    href_ $ toUrl publishFormLink
+                  ]
+                  $ do
+                    i_ [class_ "ion-compose"] ""
+                    "New Article"
+              li_ [class_ "nav-item"] $
+                a_
+                  [ class_ "nav-link",
+                    hxGetSafe_ settingsLink,
+                    href_ $ toUrl settingsLink
+                  ]
+                  $ do
+                    i_ [class_ "ion-gear-a"] ""
+                    "Settings"
+              li_ [class_ "nav-item"] $
+                a_ [class_ "nav-link", href_ . toUrl . profileLink $ username] $ do
+                  img_ [class_ "user-pic", src_ imageUrl]
+                  toHtml $ " " <> username <> " "
+  toHtmlRaw = toHtml
+
+data Footer = Footer
+
+instance ToHtml Footer where
+  toHtml _ =
+    footer_ $
+      div_ [class_ "container"] $ do
+        a_ [href_ "/", class_ "logo-font"] "conduit"
+        span_ [class_ "attribution"] $ do
+          "          An interactive learning project from "
+          a_ [href_ "https://thinkster.io"] "Thinkster"
+          ". Code & design licensed under MIT.        "
+  toHtmlRaw = toHtml
+
+instance ToHtml a => ToHtml (Partial a) where
+  toHtml (Wrapped mbUser content) =
+    html_ $ do
+      head_ $ do
+        meta_ [charset_ "utf-8"]
+        title_ "Conduit"
+        link_ [href_ "//code.ionicframework.com/ionicons/2.0.1/css/ionicons.min.css", rel_ "stylesheet", type_ "text/css"]
+        link_ [href_ "//fonts.googleapis.com/css?family=Titillium+Web:700|Source+Serif+Pro:400,700|Merriweather+Sans:400,700|Source+Sans+Pro:400,300,600,700,300italic,400italic,600italic,700italic", rel_ "stylesheet", type_ "text/css"]
+        link_ [rel_ "stylesheet", href_ "//demo.productionready.io/main.css"]
+        useHtmx
+        -- useHtmxExtension "json-enc"
+        useHyperscript
+        [_hs|
+          on htmx:pushedIntoHistory(detail) set $currentUrl to detail.path
+          then trigger currentUrlChanged
+          then log $currentUrl
+        |]
+      body_ $ do
+        -- NAVBAR
+        toHtml $ Navbar mbUser False
+
+        -- CONTENT
+        div_ [id_ "content-slot"] $ toHtml content
+
+        -- FOOTER
+        toHtml Footer
+  toHtml (NotWrapped a) = toHtml a
+  toHtmlRaw = toHtml
+
+data Feed
+  = Feed
+      Bool -- is personal for user profile?
+      [(Text, Link, Bool)] -- Feed nav pill name, link and whether or not it's active or disabled
+      [Model.ArticleInfo] -- List of author article tags tuple
+
+instance ToHtml Feed where
+  toHtml (Feed isProfile pills articles) = do
+    div_ [class_ $ if isProfile then "articles-toggle" else "feed-toggle"] $
+      ul_ [class_ "nav nav-pills outline-active"] $ do
+        forM_ pills $ \(name, link, isActive) -> do
+          li_ [class_ "nav-item"] $
+            a_ [class_ $ "nav-link " <> if isActive then "active" else "disabled", hxGetSafe_ link] $ toHtml name
+    -- ARTICLES START
+    forM_ articles $ \(Model.Article {..}, Model.User {..}, tags) ->
+      div_ [class_ "article-preview"] $ do
+        div_ [class_ "article-meta"] $ do
+          a_ [href_ . toUrl . profileLink $ userUsername] $ img_ [src_ userImageUrl]
+          div_ [class_ "info"] $ do
+            a_ [href_ . toUrl . profileLink $ userUsername, class_ "author"] $ toHtml userUsername
+            span_ [class_ "date"] $ toHtml ("January 20th" :: Text) -- articleCreatedAt
+          button_ [class_ "btn btn-outline-primary btn-sm pull-xs-right"] $ do
+            i_ [class_ "ion-heart"] ""
+            toHtml $ show articleFavorites
+        a_ [href_ "" {- slugify article title -}, class_ "preview-link"] $ do
+          h1_ $ toHtml articleTitle
+          p_ $ toHtml articleDescription
+          span_ $ toHtml ("Read more..." :: Text)
+          ul_ [class_ "tag-list"] $
+            forM_ tags $ \(Model.Tag t) ->
+              li_ [class_ "tag-default tag-pill tag-outline"] $ toHtml t
+  toHtmlRaw = toHtml
+
+data Tagbar = Tagbar [(Text, Text)] -- name of tag and what it links too, could just be name bcuz same as link
+
+instance ToHtml Tagbar where
+  toHtml (Tagbar tags) =
+    div_ [class_ "sidebar"] $ do
+      p_ "Popular Tags"
+      div_ [class_ "tag-list"] $
+        forM_ tags $ \(name, link) ->
+          a_ [href_ link, class_ "tag-pill tag-default"] $ toHtml name
+  toHtmlRaw = toHtml
+
+-- HELPERS END --
 
 loginFormLink :: Link
 loginFormLink = getLink $ proxy @LoginFormRoute
 
-loginFormSubmitLink :: Link
-loginFormSubmitLink = getLink $ proxy @LoginRoute
+loginLink :: Link
+loginLink = getLink $ proxy @LoginRoute
 
 registerFormLink :: Link
 registerFormLink = getLink $ proxy @RegisterFormRoute
 
-registerFormSubmitLink :: Link
-registerFormSubmitLink = getLink $ proxy @RegisterRoute
+registerLink :: Link
+registerLink = getLink $ proxy @RegisterRoute
 
 homeLink :: Link
 homeLink = getLink $ proxy @HomeRoute
@@ -825,11 +1028,35 @@ followLink = getLink $ proxy @FollowRoute
 unfollowLink :: Link
 unfollowLink = getLink $ proxy @UnfollowRoute
 
-editorLink :: Link
-editorLink = getLink $ proxy @EditorRoute
+publishFormLink :: Link
+publishFormLink = getLink $ proxy @PublishFormRoute
+
+publishLink :: Link
+publishLink = getLink $ proxy @PublishRoute
+
+editArticleFormLink :: (Model.ID Model.Article) -> Link
+editArticleFormLink = getLink $ proxy @EditArticleFormRoute
+
+editArticleLink :: Link
+editArticleLink = getLink $ proxy @EditArticleRoute
 
 settingsLink :: Link
 settingsLink = getLink $ proxy @SettingsRoute
 
 logoutLink :: Link
 logoutLink = getLink $ proxy @LogoutRoute
+
+articleLink :: Model.ID Model.Article -> Link
+articleLink = getLink $ proxy @ArticleRoute
+
+globalFeedLink :: Link
+globalFeedLink = getLink $ proxy @GlobalFeedRoute
+
+tagFeedLink :: Text -> Link
+tagFeedLink = getLink $ proxy @TagFeedRoute
+
+authorFeedLink :: (Model.ID Model.User) -> Link
+authorFeedLink = getLink $ proxy @AuthorFeedRoute
+
+favoritesFeedLink :: (Model.ID Model.User) -> Link
+favoritesFeedLink = getLink $ proxy @FavoritesFeedRoute

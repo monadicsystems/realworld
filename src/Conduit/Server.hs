@@ -38,9 +38,11 @@ type Server api = ServerT api App
 server :: CookieSettings -> JWTSettings -> Server Routes
 server cookieSettings jwtSettings =
   homeHandler
+  :<|> articleHandler
   :<|> followHandler
   :<|> unfollowHandler
-  :<|> editorHandler
+  :<|> publishFormHandler
+  :<|> editArticleFormHandler
   :<|> settingsHandler
   :<|> profileHandler
   :<|> logoutHandler
@@ -48,6 +50,12 @@ server cookieSettings jwtSettings =
   :<|> loginFormHandler
   :<|> registerHandler cookieSettings jwtSettings
   :<|> loginHandler cookieSettings jwtSettings
+  :<|> publishHandler
+  :<|> editArticleHandler
+  :<|> globalFeedHandler
+  :<|> tagFeedHandler
+  :<|> authorFeedHandler
+  :<|> favoritesFeedHandler
 
 context :: CookieSettings -> JWTSettings -> Context '[CookieSettings, JWTSettings]
 context cookieConfig jwtConfig = cookieConfig :. jwtConfig :. EmptyContext

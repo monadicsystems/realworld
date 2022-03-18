@@ -4,7 +4,7 @@
 
 module Conduit.Validate where
 
-import Conduit.Model (LoginForm (..), RegisterForm (..))
+import Conduit.Model (LoginForm (..), RegisterForm (..), PublishForm, EditArticleForm)
 import Control.Applicative ((<|>))
 import Control.Monad ((>=>))
 import Control.Monad.Trans.Except
@@ -15,7 +15,11 @@ import Web.Forma
 
 type LoginFormFields = '["email", "password"]
 
-type SignUpFormFields = '["email", "password", "username"]
+type RegisterFormFields = '["email", "password", "username"]
+
+type PublishFormFields = '["body", "description", "tags", "title"]
+
+type EditArticleFormFields = '["articleID", "body", "description", "tags", "title"]
 
 loginForm :: Monad m => FormParser LoginFormFields (Text -> Text) m LoginForm
 loginForm =
@@ -23,12 +27,18 @@ loginForm =
     <$> field #email (notEmpty {- >=> validEmail -})
     <*> field #password (notEmpty {- >=> tooShort -})
 
-registerForm :: Monad m => FormParser SignUpFormFields (Text -> Text) m RegisterForm
+registerForm :: Monad m => FormParser RegisterFormFields (Text -> Text) m RegisterForm
 registerForm =
   RegisterForm
     <$> field #email (notEmpty {- >=> validEmail -})
     <*> field #password (notEmpty {- >=> tooShort -})
     <*> field #username notEmpty
+
+publishForm :: Monad m => FormParser PublishFormFields (Text -> Text) m PublishForm
+publishForm = undefined
+
+editArticleForm :: Monad m => FormParser EditArticleFormFields (Text -> Text) m EditArticleForm
+editArticleForm = undefined
 
 notEmpty :: Monad m => Text -> ExceptT (Text -> Text) m Text
 notEmpty txt =

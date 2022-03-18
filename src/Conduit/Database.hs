@@ -8,8 +8,10 @@ module Conduit.Database where
 import Conduit.App
 import Conduit.Model
 import Conduit.Model (RegisterForm (RegisterForm))
+import Control.Monad (forM)
 import Control.Monad.IO.Class (liftIO)
 import Data.Bifunctor (bimap)
+import Data.Either (rights)
 import Data.Function ((&))
 import Data.Int
 -- import qualified Data.Sequence.Internal.Sorting as Text
@@ -17,7 +19,7 @@ import Data.Profunctor (dimap)
 import Data.Text
 import Data.Time
 import Data.Vector (Vector)
-import Data.Vector as Vector
+import qualified Data.Vector as Vector
 import Hasql.Connection (Connection)
 import Hasql.Session (Session, QueryError)
 import qualified Hasql.Session as Session
@@ -55,9 +57,9 @@ registerFormToTuple RegisterForm {..} =
     registerFormPassword
   )
 
-newEditorFormToTuple :: NewEditorForm -> (Int32, Text, Text, Text)
-newEditorFormToTuple NewEditorForm {..} =
-  (unID newEditorFormAuthorID, newEditorFormTitle, newEditorFormDescription, newEditorFormBody)
+publishFormWithAuthorIDToTuple :: (ID User, PublishForm) -> (Int32, Text, Text, Text)
+publishFormWithAuthorIDToTuple (authorID, PublishForm {..}) =
+  (unID authorID, publishFormTitle, publishFormDescription, publishFormBody)
 
 tupleToArticle :: (Int32, Int32, Text, Text, Text, Int32, UTCTime) -> Article
 tupleToArticle (articleID, authorID, title, description, body, favorites, createdAt) =
@@ -71,9 +73,9 @@ tupleToArticle (articleID, authorID, title, description, body, favorites, create
       articleTitle = title
     }
 
-updateEditorFormToTuple :: UpdateEditorForm -> (Int32, Text, Text, Text)
-updateEditorFormToTuple UpdateEditorForm {..} =
-  (unID updateEditorFormArticleID, updateEditorFormTitle, updateEditorFormDescription, updateEditorFormBody)
+editArticleFormWithAuthorIDToTuple :: (ID User, EditArticleForm) -> (Int32, Int32, Text, Text, Text)
+editArticleFormWithAuthorIDToTuple (authorID, EditArticleForm {..}) =
+  (unID authorID, unID editArticleFormArticleID, editArticleFormTitle, editArticleFormDescription, editArticleFormBody)
 
 commentFormToTuple :: CommentForm -> (Int32, Int32, Text)
 commentFormToTuple CommentForm {..} =
@@ -95,7 +97,7 @@ tupleToArticleTagsVectors (ID articleID, commaSepTags) =
     | tag <- Prelude.map strip $ split (',' ==) commaSepTags
   ]
     & Prelude.unzip
-    & bimap fromList fromList
+    & bimap Vector.fromList Vector.fromList
 
 followToTuple :: Follow -> (Int32, Int32)
 followToTuple ((ID followerID) :-> (ID followeeID)) =
@@ -201,10 +203,10 @@ createArticlesSession =
       );
     |]
 
-insertArticleStatement :: Statement NewEditorForm Article
+insertArticleStatement :: Statement (ID User, PublishForm) Article
 insertArticleStatement =
   dimap
-    newEditorFormToTuple
+    publishFormWithAuthorIDToTuple
     tupleToArticle
     [TH.singletonStatement|
       insert into articles (fk_user, title, description, body)
@@ -212,17 +214,17 @@ insertArticleStatement =
       returning pk_article :: int4, fk_user :: int4, title :: text, description :: text, body :: text, favorites :: int4, created_at :: timestamptz
     |]
 
-updateArticleStatement :: Statement UpdateEditorForm Article
+updateArticleStatement :: Statement (ID User, EditArticleForm) Article
 updateArticleStatement =
   dimap
-    updateEditorFormToTuple
+    editArticleFormWithAuthorIDToTuple
     tupleToArticle
     [TH.singletonStatement|
         update articles
-        set title = $2 :: Text,
-            description = $3 :: Text,
-            body = $4 :: Text
-        where pk_article = $1 :: int4
+        set title = $3 :: Text,
+            description = $4 :: Text,
+            body = $5 :: Text
+        where fk_user = $1 :: int4 and pk_article = $2 :: int4
         returning pk_article :: int4, fk_user :: int4, title :: text, description :: text, body :: text, favorites :: int4, created_at :: timestamptz
     |]
 
@@ -393,6 +395,91 @@ doesFollowExistStatment =
       select exists (select * from follows where fk_follower = $1 :: int4 and fk_followee = $2 :: int4) :: bool
     |]
 
+getTagsByArticleIDStatement :: Statement (ID Article) [Tag]
+getTagsByArticleIDStatement =
+  dimap
+    unID
+    (Vector.toList . fmap Tag)
+    [TH.vectorStatement|
+      select
+        fk_tag :: text
+      from article_tags at
+      where at.fk_article = $1 :: int4
+    |]
+
+getUserByUserIDStatement :: Statement (ID User) User
+getUserByUserIDStatement =
+  dimap
+    unID
+    tupleToUser
+    [TH.singletonStatement|
+      select
+        pk_user :: int4,
+        username :: text,
+        email :: text,
+        imageUrl :: text,
+        bio :: text
+      from users
+      where pk_user = $1 :: int4
+    |]
+
+getAllArticlesStatement :: Statement () [Article]
+getAllArticlesStatement =
+  dimap
+    id
+    (Vector.toList . fmap tupleToArticle)
+    [TH.vectorStatement|
+      select
+        pk_article :: int4,
+        fk_user :: int4,
+        title :: text,
+        description :: text,
+        body :: text,
+        favorites :: int4,
+        created_at :: timestamptz
+      from articles
+      order by "created_at"
+    |]
+
+getArticlesByTagStatement :: Statement Tag [Article]
+getArticlesByTagStatement =
+  dimap
+    unTag
+    (Vector.toList . fmap tupleToArticle)
+    [TH.vectorStatement|
+      select
+        pk_article :: int4,
+        fk_user :: int4,
+        title :: text,
+        description :: text,
+        body :: text,
+        favorites :: int4,
+        created_at :: timestamptz
+      from articles
+      inner join article_tags on fk_tag = $1 :: text
+      where pk_article = fk_article
+      order by "created_at"
+    |]
+
+getArticlesByUserIDStatement :: Statement (ID User) [Article]
+getArticlesByUserIDStatement =
+  dimap
+    unID
+    (Vector.toList . fmap tupleToArticle)
+    [TH.vectorStatement|
+      select
+        pk_article :: int4,
+        fk_user :: int4,
+        title :: text,
+        description :: text,
+        body :: text,
+        favorites :: int4,
+        created_at :: timestamptz
+      from articles
+      where fk_user = $1 :: int4
+      order by "created_at"
+    |]
+
 -- EXECUTION HELPERS START --
 
 runStatementIO :: forall i o. Connection -> Statement i o -> i -> IO (Either QueryError o)
@@ -418,6 +505,12 @@ runUncheckedSql session = do
 insertUser :: RegisterForm -> App (Either QueryError User)
 insertUser = runStatement insertUserStatement
 
+insertArticle :: (ID User, PublishForm) -> App (Either QueryError Article)
+insertArticle = runStatement insertArticleStatement
+
+updateArticle :: (ID User, EditArticleForm) -> App (Either QueryError Article)
+updateArticle = runStatement updateArticleStatement
+
 verifyUser :: LoginForm -> App (Either QueryError User)
 verifyUser = runStatement verifyUserStatement
 
@@ -426,6 +519,27 @@ getUserByUsername = runStatement getUserByUsernameStatement
 
 doesFollowExist :: User -> User -> App (Either QueryError Bool)
 doesFollowExist user1 user2 = runStatement doesFollowExistStatment (unID $ userID user1, unID $ userID user2)
+
+getAllArticles :: App (Either QueryError [Article])
+getAllArticles = runStatement getAllArticlesStatement ()
+
+getArticlesByTag :: Tag -> App (Either QueryError [Article])
+getArticlesByTag = runStatement getArticlesByTagStatement
+
+getArticlesByUserID :: ID User -> App (Either QueryError [Article])
+getArticlesByUserID = runStatement getArticlesByUserIDStatement
+
+getArticleInfos :: [Article] -> App [ArticleInfo]
+getArticleInfos articles = rights <$> do
+  forM articles $ \article@Article{..} -> do
+    authorResult <- runStatement getUserByUserIDStatement articleAuthorID
+    case authorResult of
+      Left err' -> pure $ Left err'
+      Right author -> do
+        tagsResult <- runStatement getTagsByArticleIDStatement articleID
+        case tagsResult of
+          Left err'' -> pure $ Left err''
+          Right tags -> pure $ Right (article, author, tags)
 
 -- EXECUTION END --
 
