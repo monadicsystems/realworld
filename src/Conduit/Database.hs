@@ -28,6 +28,9 @@ import qualified Hasql.Statement as Statement
 import Hasql.TH (resultlessStatement)
 import qualified Hasql.TH as TH
 
+eitherToMaybe (Right a) = Just a
+eitherToMaybe _ = Nothing
+
 -- HELPERS START --
 
 tupleToUser :: (Int32, Text, Text, Text, Text) -> User
@@ -480,6 +483,24 @@ getArticlesByUserIDStatement =
       order by "created_at"
     |]
 
+getArticleByArticleIDStatement :: Statement (ID Article) Article
+getArticleByArticleIDStatement =
+  dimap
+    unID
+    tupleToArticle
+    [TH.singletonStatement|
+      select
+        pk_article :: int4,
+        fk_user :: int4,
+        title :: text,
+        description :: text,
+        body :: text,
+        favorites :: int4,
+        created_at :: timestamptz
+      from articles
+      where pk_article = $1 :: int4
+    |]
+
 -- EXECUTION HELPERS START --
 
 runStatementIO :: forall i o. Connection -> Statement i o -> i -> IO (Either QueryError o)
@@ -528,6 +549,20 @@ getArticlesByTag = runStatement getArticlesByTagStatement
 
 getArticlesByUserID :: ID User -> App (Either QueryError [Article])
 getArticlesByUserID = runStatement getArticlesByUserIDStatement
+
+getArticleByArticleID :: ID Article -> App (Either QueryError Article)
+getArticleByArticleID = runStatement getArticleByArticleIDStatement
+
+getArticleInfo :: Article -> App (Maybe ArticleInfo)
+getArticleInfo article@Article{..} = eitherToMaybe <$> do
+  authorResult <- runStatement getUserByUserIDStatement articleAuthorID
+  case authorResult of
+    Left err' -> pure $ Left err'
+    Right author -> do
+      tagsResult <- runStatement getTagsByArticleIDStatement articleID
+      case tagsResult of
+        Left err'' -> pure $ Left err''
+        Right tags -> pure $ Right (article, author, tags)
 
 getArticleInfos :: [Article] -> App [ArticleInfo]
 getArticleInfos articles = rights <$> do

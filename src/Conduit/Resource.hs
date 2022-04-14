@@ -408,13 +408,34 @@ instance ToHtml Article where
                 span_ [class_ "mod-options"] $ do
                   i_ [class_ "ion-edit"] ""
                   i_ [class_ "ion-trash-a"] ""
+  toHtml (PublicViewArticle (Model.Article {..}, Model.User {..}, tags)) = undefined
   toHtmlRaw = toHtml
 
 type ArticleRoute =
   "article" :> Auth '[Cookie] Model.User :> HXRequest :> Capture "article-id" (Model.ID Model.Article) :> Get '[HTML] (Partial Article)
 
+-- TODO: Instead of ID should be slug
 articleHandler :: AuthResult Model.User -> Maybe Text -> Model.ID Model.Article -> App (Partial Article)
-articleHandler = 
+articleHandler (Authenticated currentUser) hxReq articleID = do
+  result <- getArticleByArticleID articleID
+  case result of
+    Left _ -> throwError err401
+    Right articleData -> do
+      mbArticleInfo <- getArticleInfo articleData
+      case mbArticleInfo of
+        Nothing -> throwError err401
+        Just articleInfo -> do
+          let
+            wrapped = \x -> Wrapped (Just currentUser) x
+            publicArticle = PublicViewArticle articleInfo
+            privateArticle = PrivateViewArticle articleInfo
+          case (hxReq, Model.userID currentUser == Model.articleAuthorID articleData) of
+            (Nothing, False) -> pure $ NotWrapped publicArticle
+            (Just "user", False) -> pure $ wrapped publicArticle
+            (Nothing, True) -> pure $ NotWrapped privateArticle
+            (Just "user", True) -> pure $ wrapped privateArticle
+            (_, _) -> throwError err401
+articleHandler _ hxReq articleID = undefined
 
 -- Article End --
 
