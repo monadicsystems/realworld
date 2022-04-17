@@ -59,46 +59,45 @@ type Routes =
     :<|> TagFeedRoute
     :<|> AuthorFeedRoute
     :<|> FavoritesFeedRoute
+    :<|> YourFeedRoute
 
 -- HOME START --
 
-data Home = Home (Maybe Model.User)
+data Home = Home Bool Feed
 
 instance ToHtml Home where
-  toHtml (Home mbUser) =
+  toHtml (Home isLoggedIn feed) = do
+    -- if not isLoggedIn then toHtml $ Navbar Nothing False else ""
     div_ [class_ "home-page"] $ do
-      case mbUser of
-        Nothing -> do
+      if not isLoggedIn
+        then do
           div_ [class_ "banner"] $
             div_ [class_ "container"] $ do
               h1_ [class_ "logo-font"] "conduit"
               p_ "A place to share your knowledge."
-        Just _ -> ""
+        else do
+          ""
       div_ [class_ "container page"] $
         div_ [class_ "row"] $ do
           -- FEED
-          div_ [id_ "feeds", class_ "col-md-9"] $
-            toHtml $ case mbUser of
-              Nothing -> Feed False [("Global Feed", globalFeedLink, True)] []
-              Just Model.User {..} ->
-                Feed
-                  False
-                  [("Your Feed", authorFeedLink userID, True), ("Global Feed", globalFeedLink, False)]
-                  []
-
+          div_ [class_ "col-md-9"] $ toHtml feed
           -- TAGS
-          div_ [id_ "tags", class_ "col-md-3"] $ toHtml $ Tagbar []
+          div_ [id_ "tagbar", class_ "col-md-3"] $ toHtml $ Tagbar []
   toHtmlRaw = toHtml
 
 type HomeRoute = Auth '[Cookie] Model.User :> HXRequest :> Get '[HTML] (Partial Home)
 
 homeHandler :: AuthResult Model.User -> Maybe Text -> App (Partial Home)
-homeHandler (Authenticated user) hxReq = pure $ case hxReq of
-  Just "true" -> NotWrapped $ Home (Just user)
-  _ -> Wrapped (Just user) $ Home (Just user)
-homeHandler _ hxReq = pure $ case hxReq of
-  Just "true" -> NotWrapped $ Home Nothing
-  _ -> Wrapped Nothing $ Home Nothing
+homeHandler (Authenticated user) hxReq = do
+  feed <- getHomeFeed (Just user)
+  pure $ case hxReq of
+    Just "true" -> NotWrapped $ Home True feed
+    _ -> Wrapped (Just user) $ Home True feed
+homeHandler _ hxReq = do
+  feed <- getHomeFeed Nothing
+  pure $ case hxReq of
+    Just "true" -> NotWrapped $ Home False feed
+    _ -> Wrapped Nothing $ Home False feed
 
 -- HOME END --
 
@@ -418,6 +417,7 @@ type ArticleRoute =
 articleHandler :: AuthResult Model.User -> Maybe Text -> Model.ID Model.Article -> App (Partial Article)
 articleHandler (Authenticated currentUser) hxReq articleID = do
   result <- getArticleByArticleID articleID
+  liftIO $ print "Got articles result"
   case result of
     Left _ -> throwError err401
     Right articleData -> do
@@ -425,6 +425,7 @@ articleHandler (Authenticated currentUser) hxReq articleID = do
       case mbArticleInfo of
         Nothing -> throwError err401
         Just articleInfo -> do
+          liftIO $ print "Generating article info"
           let
             wrapped = \x -> Wrapped (Just currentUser) x
             publicArticle = PublicViewArticle articleInfo
@@ -441,23 +442,26 @@ articleHandler _ hxReq articleID = undefined
 
 -- Publish Form Start --
 
-data PublishForm = PublishForm
+data PublishForm = PublishForm (Maybe Model.PublishForm) [Text]
 
 instance ToHtml PublishForm where
-  toHtml PublishForm =
+  toHtml (PublishForm mbPublishForm errors) =
     div_ [class_ "editor-page"] $
       div_ [class_ "container page"] $
         div_ [class_ "row"] $
-          div_ [class_ "col-md-10 offset-md-1 col-xs-12"] $
+          div_ [class_ "col-md-10 offset-md-1 col-xs-12"] $ do
+            case errors of
+              [] -> ""
+              errors' -> ul_ [class_ "error-messages"] $ mapM_ (li_ [] . toHtml) errors'
             form_ $
               fieldset_ $ do
-                fieldset_ [class_ "form-group"] $ input_ [type_ "text", class_ "form-control form-control-lg", placeholder_ "Article Title"]
-                fieldset_ [class_ "form-group"] $ input_ [type_ "text", class_ "form-control", placeholder_ "What's this article about?"]
-                fieldset_ [class_ "form-group"] $ textarea_ [class_ "form-control", rows_ "8", placeholder_ "Write your article (in markdown)"] ""
+                fieldset_ [class_ "form-group"] $ input_ [type_ "text", class_ "form-control form-control-lg", placeholder_ "Article Title", name_ "publishFormTitle", value_ $ maybe "" Model.publishFormTitle mbPublishForm]
+                fieldset_ [class_ "form-group"] $ input_ [type_ "text", class_ "form-control", placeholder_ "What's this article about?", name_ "publishFormDescription", value_ $ maybe "" Model.publishFormDescription mbPublishForm]
+                fieldset_ [class_ "form-group"] $ textarea_ [class_ "form-control", rows_ "8", placeholder_ "Write your article (in markdown)", name_ "publishFormBody"] $ toHtml $ maybe "" Model.publishFormBody mbPublishForm
                 fieldset_ [class_ "form-group"] $ do
-                  input_ [type_ "text", class_ "form-control", placeholder_ "Enter tags"]
+                  input_ [type_ "text", class_ "form-control", placeholder_ "Enter tags", name_ "publishFormTags", value_ $ maybe "" Model.publishFormTags mbPublishForm]
                   div_ [class_ "tag-list"] ""
-                button_ [class_ "btn btn-lg pull-xs-right btn-primary", type_ "button"] "Publish Article"
+                button_ [class_ "btn btn-lg pull-xs-right btn-primary", type_ "button", hxPostSafe_ $ publishLink, hxTarget_ ".editor-page", hxSwap_ "outerHTML"] "Publish Article"
   toHtmlRaw = toHtml
 
 type PublishFormRoute = "editor" :> "publish" :> Auth '[Cookie] Model.User :> HXRequest :> Get '[HTML] (Partial PublishForm)
@@ -465,8 +469,8 @@ type PublishFormRoute = "editor" :> "publish" :> Auth '[Cookie] Model.User :> HX
 publishFormHandler :: AuthResult Model.User -> Maybe Text -> App (Partial PublishForm)
 publishFormHandler (Authenticated currentUser) hxReq =
   pure $ case hxReq of
-    Just "true" -> NotWrapped PublishForm
-    _ -> Wrapped (Just currentUser) PublishForm
+    Just "true" -> NotWrapped $ PublishForm Nothing []
+    _ -> Wrapped (Just currentUser) $ PublishForm Nothing []
 editorHandler _ _ = redirectToRegisterForm
 
 -- Publish Form End --
@@ -517,7 +521,7 @@ data PublishResponse
   = PublishFailure Model.PublishForm [Text]
 
 instance ToHtml PublishResponse where
-  toHtml = undefined
+  toHtml (PublishFailure publishForm errors) = toHtml $ PublishForm (Just publishForm) errors
   toHtmlRaw = toHtml
 
 type PublishRoute =
@@ -597,13 +601,12 @@ editArticleHandler _ _ = redirectToRegisterForm
 
 data RegisterResponse
   = RegisterFailure Model.RegisterForm [Text]
-  | RegisterSuccess Model.User
+  | RegisterSuccess Model.User Home
 
 instance ToHtml RegisterResponse where
   toHtml (RegisterFailure registerForm errors) = toHtml $ RegisterForm (Just registerForm) errors
-  toHtml (RegisterSuccess user) = do
-    -- TODO: Just redirect to home?
-    toHtml $ Home $ Just user
+  toHtml (RegisterSuccess user home) = do
+    toHtml home
     toHtml $ Navbar (Just user) True
   toHtmlRaw = toHtml
 
@@ -655,8 +658,9 @@ registerHandler
             mApplyCookies <- liftIO $ acceptLogin cookieSettings jwtSettings user
             case mApplyCookies of
               Nothing -> throwError err401
-              Just applyCookies ->
-                RegisterSuccess user
+              Just applyCookies -> do
+                feed <- getHomeFeed (Just user)
+                RegisterSuccess user (Home True feed)
                   & applyCookies
                   & addHeader (toUrl homeLink)
                   & pure
@@ -667,12 +671,12 @@ registerHandler
 
 data LoginResponse
   = LoginFailure Model.LoginForm [Text]
-  | LoginSuccess Model.User
+  | LoginSuccess Model.User Home
 
 instance ToHtml LoginResponse where
   toHtml (LoginFailure loginForm errors) = toHtml $ LoginForm (Just loginForm) errors
-  toHtml (LoginSuccess user) = do
-    toHtml $ Home $ Just user
+  toHtml (LoginSuccess user home) = do
+    toHtml home
     toHtml $ Navbar (Just user) True
   toHtmlRaw = toHtml
 
@@ -725,8 +729,9 @@ loginHandler
             mApplyCookies <- liftIO $ acceptLogin cookieSettings jwtSettings user
             case mApplyCookies of
               Nothing -> throwError err401
-              Just applyCookies ->
-                applyCookies (LoginSuccess user)
+              Just applyCookies -> do
+                feed <- getHomeFeed (Just user)
+                applyCookies (LoginSuccess user (Home True feed))
                   & addHeader (toUrl homeLink)
                   & pure
 
@@ -734,11 +739,11 @@ loginHandler
 
 -- Logout Response Start --
 
-data LogoutResponse = LogoutResponse
+data LogoutResponse = LogoutResponse Home
 
 instance ToHtml LogoutResponse where
-  toHtml LogoutResponse = do
-    toHtml $ Home Nothing
+  toHtml (LogoutResponse home) = do
+    toHtml home
     toHtml $ Navbar Nothing True
   toHtmlRaw = toHtml
 
@@ -748,13 +753,12 @@ type LogoutRoute =
     :> Post '[HTML] (Headers '[HXPush, Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] LogoutResponse)
 
 logoutHandler :: AuthResult Model.User -> App (Headers '[HXPush, Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] LogoutResponse)
-logoutHandler _ =
-  do
-    LogoutResponse
-    & noHeader
-    & noHeader
-    & addHeader (toUrl homeLink)
-    & pure
+logoutHandler _ = do
+    feed <- getHomeFeed Nothing
+    pure $ LogoutResponse (Home False feed)
+      & noHeader
+      & noHeader
+      & addHeader (toUrl homeLink)
 
 -- Logout Response End --
 
@@ -808,7 +812,7 @@ unfollowHandler = undefined
 
 -- Feed Handlers Start --
 
-type GlobalFeedRoute = "feed" :> "global" :> Get '[HTML] Feed
+type GlobalFeedRoute = "feed" :> "global" :> Auth '[Cookie] Model.User :> Get '[HTML] Feed
 
 type TagFeedRoute = "feed" :> "tag" :> Capture "tag" Text :> Get '[HTML] Feed
 
@@ -816,8 +820,34 @@ type AuthorFeedRoute = "feed" :> "author" :> Capture "author" (Model.ID Model.Us
 
 type FavoritesFeedRoute = "feed" :> "favorites" :> Capture "user" (Model.ID Model.User) :> Get '[HTML] Feed
 
-globalFeedHandler :: App Feed
-globalFeedHandler = do
+type YourFeedRoute = "feed" :> "your" :> Capture "user" (Model.ID Model.User) :> Get '[HTML] Feed
+
+globalFeedHandler :: AuthResult Model.User -> App Feed
+globalFeedHandler (Authenticated Model.User {..}) = do
+  articlesResult <- getAllArticles
+  case articlesResult of
+    Left queryErr -> throwError err401
+    Right articles -> do
+      articleInfos <- getArticleInfos articles
+      pure $ Feed
+        False
+        [("Your Feed", yourFeedLink userID, False) , ("Global Feed", globalFeedLink, True)]
+        articleInfos
+globalFeedHandler _ = getHomeFeed Nothing
+
+        
+getHomeFeed :: Maybe Model.User -> App Feed
+getHomeFeed (Just Model.User{..}) = do
+  articlesResult <- getArticlesByUserID userID
+  case articlesResult of
+    Left queryErr -> throwError err401
+    Right articles -> do
+      articleInfos <- getArticleInfos articles
+      pure $ Feed
+        False
+        [("Your Feed", yourFeedLink userID, True) , ("Global Feed", globalFeedLink, False)]
+        articleInfos
+getHomeFeed Nothing = do
   articlesResult <- getAllArticles
   case articlesResult of
     Left queryErr -> throwError err401
@@ -852,8 +882,20 @@ authorFeedHandler userID = do
       pure $ Feed
         True
         [ ("My Articles", authorFeedLink userID, True)
-        , ("Favorited Articles", favoritesFeedLink userID, True)
+        , ("Favorited Articles", favoritesFeedLink userID, False)
         ]
+        articleInfos
+
+yourFeedHandler :: Model.ID Model.User -> App Feed
+yourFeedHandler userID = do
+  articlesResult <- getArticlesByUserID userID
+  case articlesResult of
+    Left queryErr -> throwError err401
+    Right articles -> do
+      articleInfos <- getArticleInfos articles
+      pure $ Feed
+        False
+        [("Your Feed", yourFeedLink userID, True), ("Global Feed", globalFeedLink, False)]
         articleInfos
 
 favoritesFeedHandler :: Model.ID Model.User -> App Feed
@@ -898,7 +940,8 @@ instance ToHtml Navbar where
       [ id_ "navbar",
         class_ "navbar navbar-light",
         hxBoost_ "true",
-        hxTarget_ "#content-slot",
+        hxTarget_ "#navbar",
+        hxSwap_ "outerHTML",
         hxPushUrlSafe_ (Left True),
         if isOob then hxSwapOob_ "true" else class_ ""
       ]
@@ -961,12 +1004,12 @@ instance ToHtml a => ToHtml (Partial a) where
         link_ [rel_ "stylesheet", href_ "//demo.productionready.io/main.css"]
         useHtmx
         -- useHtmxExtension "json-enc"
-        useHyperscript
-        [_hs|
-          on htmx:pushedIntoHistory(detail) set $currentUrl to detail.path
-          then trigger currentUrlChanged
-          then log $currentUrl
-        |]
+        -- useHyperscript
+        -- [_hs|
+        --   on htmx:pushedIntoHistory(detail) set $currentUrl to detail.path
+        --   then trigger currentUrlChanged
+        --   then log $currentUrl
+        -- |]
       body_ $ do
         -- NAVBAR
         toHtml $ Navbar mbUser False
@@ -987,29 +1030,30 @@ data Feed
 
 instance ToHtml Feed where
   toHtml (Feed isProfile pills articles) = do
-    div_ [class_ $ if isProfile then "articles-toggle" else "feed-toggle"] $
-      ul_ [class_ "nav nav-pills outline-active"] $ do
-        forM_ pills $ \(name, link, isActive) -> do
-          li_ [class_ "nav-item"] $
-            a_ [class_ $ "nav-link " <> if isActive then "active" else "disabled", hxGetSafe_ link] $ toHtml name
-    -- ARTICLES START
-    forM_ articles $ \(Model.Article {..}, Model.User {..}, tags) ->
-      div_ [class_ "article-preview"] $ do
-        div_ [class_ "article-meta"] $ do
-          a_ [href_ . toUrl . profileLink $ userUsername] $ img_ [src_ userImageUrl]
-          div_ [class_ "info"] $ do
-            a_ [href_ . toUrl . profileLink $ userUsername, class_ "author"] $ toHtml userUsername
-            span_ [class_ "date"] $ toHtml ("January 20th" :: Text) -- articleCreatedAt
-          button_ [class_ "btn btn-outline-primary btn-sm pull-xs-right"] $ do
-            i_ [class_ "ion-heart"] ""
-            toHtml $ show articleFavorites
-        a_ [href_ "" {- slugify article title -}, class_ "preview-link"] $ do
-          h1_ $ toHtml articleTitle
-          p_ $ toHtml articleDescription
-          span_ $ toHtml ("Read more..." :: Text)
-          ul_ [class_ "tag-list"] $
-            forM_ tags $ \(Model.Tag t) ->
-              li_ [class_ "tag-default tag-pill tag-outline"] $ toHtml t
+    div_ [id_ "feed"] $ do
+      div_ [class_ $ if isProfile then "articles-toggle" else "feed-toggle"] $
+        ul_ [class_ "nav nav-pills outline-active"] $ do
+          forM_ pills $ \(name, link, isActive) -> do
+            li_ [class_ "nav-item"] $
+              a_ [class_ $ "nav-link " <> if isActive then "active" else "disabled", hxGetSafe_ link, hxTarget_ "#feed", hxSwap_ "outerHTML"] $ toHtml name
+      -- ARTICLES START
+      forM_ articles $ \(Model.Article {..}, Model.User {..}, tags) ->
+        div_ [class_ "article-preview"] $ do
+          div_ [class_ "article-meta"] $ do
+            a_ [href_ . toUrl . profileLink $ userUsername] $ img_ [src_ userImageUrl]
+            div_ [class_ "info"] $ do
+              a_ [href_ . toUrl . profileLink $ userUsername, class_ "author"] $ toHtml userUsername
+              span_ [class_ "date"] $ toHtml ("January 20th" :: Text) -- articleCreatedAt
+            button_ [class_ "btn btn-outline-primary btn-sm pull-xs-right"] $ do
+              i_ [class_ "ion-heart"] ""
+              toHtml $ show articleFavorites
+          a_ [href_ . toUrl . articleLink $ articleID, class_ "preview-link"] $ do
+            h1_ $ toHtml articleTitle
+            p_ $ toHtml articleDescription
+            span_ $ toHtml ("Read more..." :: Text)
+            ul_ [class_ "tag-list"] $
+              forM_ tags $ \(Model.Tag t) ->
+                li_ [class_ "tag-default tag-pill tag-outline"] $ toHtml t
   toHtmlRaw = toHtml
 
 data Tagbar = Tagbar [(Text, Text)] -- name of tag and what it links too, could just be name bcuz same as link
@@ -1081,3 +1125,6 @@ authorFeedLink = getLink $ proxy @AuthorFeedRoute
 
 favoritesFeedLink :: (Model.ID Model.User) -> Link
 favoritesFeedLink = getLink $ proxy @FavoritesFeedRoute
+
+yourFeedLink :: Model.ID Model.User -> Link
+yourFeedLink = getLink $ proxy @YourFeedRoute

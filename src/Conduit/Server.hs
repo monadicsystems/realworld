@@ -56,6 +56,7 @@ server cookieSettings jwtSettings =
   :<|> tagFeedHandler
   :<|> authorFeedHandler
   :<|> favoritesFeedHandler
+  :<|> yourFeedHandler
 
 context :: CookieSettings -> JWTSettings -> Context '[CookieSettings, JWTSettings]
 context cookieConfig jwtConfig = cookieConfig :. jwtConfig :. EmptyContext
@@ -95,11 +96,11 @@ runApp port = do
 
   -- DB SETUP START --
   -- DROP TABLES IF THEY EXIST
-  -- runUncheckedSqlIO dbConn dropCommentsSession
-  -- runUncheckedSqlIO dbConn dropArticlesTagsSession
-  -- runUncheckedSqlIO dbConn dropArticlesSession
-  -- runUncheckedSqlIO dbConn dropFollowsSession
-  -- runUncheckedSqlIO dbConn dropUsersSession
+  runUncheckedSqlIO dbConn dropCommentsSession
+  runUncheckedSqlIO dbConn dropArticlesTagsSession
+  runUncheckedSqlIO dbConn dropArticlesSession
+  runUncheckedSqlIO dbConn dropFollowsSession
+  runUncheckedSqlIO dbConn dropUsersSession
 
   -- CREATE TABLES
   runUncheckedSqlIO dbConn createUsersSession

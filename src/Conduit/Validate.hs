@@ -4,7 +4,7 @@
 
 module Conduit.Validate where
 
-import Conduit.Model (LoginForm (..), RegisterForm (..), PublishForm, EditArticleForm)
+import Conduit.Model (LoginForm (..), RegisterForm (..), PublishForm (..), EditArticleForm (..))
 import Control.Applicative ((<|>))
 import Control.Monad ((>=>))
 import Control.Monad.Trans.Except
@@ -15,17 +15,13 @@ import Web.Forma
 
 type LoginFormFields = '["email", "password"]
 
-type RegisterFormFields = '["email", "password", "username"]
-
-type PublishFormFields = '["body", "description", "tags", "title"]
-
-type EditArticleFormFields = '["articleID", "body", "description", "tags", "title"]
-
 loginForm :: Monad m => FormParser LoginFormFields (Text -> Text) m LoginForm
 loginForm =
   LoginForm
     <$> field #email (notEmpty {- >=> validEmail -})
     <*> field #password (notEmpty {- >=> tooShort -})
+
+type RegisterFormFields = '["email", "password", "username"]
 
 registerForm :: Monad m => FormParser RegisterFormFields (Text -> Text) m RegisterForm
 registerForm =
@@ -34,11 +30,26 @@ registerForm =
     <*> field #password (notEmpty {- >=> tooShort -})
     <*> field #username notEmpty
 
+type PublishFormFields = '["body", "description", "tags", "title"]
+
 publishForm :: Monad m => FormParser PublishFormFields (Text -> Text) m PublishForm
-publishForm = undefined
+publishForm =
+  PublishForm
+    <$> field #body notEmpty
+    <*> field #description notEmpty
+    <*> field #tags notEmpty
+    <*> field #title notEmpty
+
+type EditArticleFormFields = '["articleID", "body", "description", "tags", "title"]
 
 editArticleForm :: Monad m => FormParser EditArticleFormFields (Text -> Text) m EditArticleForm
-editArticleForm = undefined
+editArticleForm =
+  EditArticleForm
+    <$> field #articleID (\articleID -> pure articleID)
+    <*> field #body notEmpty
+    <*> field #description notEmpty
+    <*> field #tags notEmpty
+    <*> field #title notEmpty
 
 notEmpty :: Monad m => Text -> ExceptT (Text -> Text) m Text
 notEmpty txt =
